@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>ショートカットの作り方</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@700&family=Zen+Kaku+Gothic+New:wght@400;700&display=swap">
+<link rel="stylesheet" href="../css/app.css">
+<style>
+  ol.steps { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 10px; }
+  ol.steps li { padding-left: 4px; }
+  .act { display: inline-block; font-weight: 700; background: var(--teal-soft); color: var(--teal-soft-ink); border-radius: 6px; padding: 0 6px; }
+  .kv { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 4px 12px; font-size: 14px; }
+  .kv span:nth-child(odd) { font-family: ui-monospace, Menlo, monospace; font-weight: 700; }
+  h2 { margin-top: 8px; }
+</style>
+</head>
+<body>
+<header class="bar"><a class="icon-btn" href="../#/settings" aria-label="戻る"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
+  <div class="bar-title"><h1>ショートカット「旅に記録」の作り方</h1><span class="sub">A.H.さんのiPhoneで1回だけ（目安15〜30分）</span></div></header>
+<main class="page stack-lg">
+  <section class="notice stack">
+    <b>できるようになること</b>
+    <span>写真アプリで写真を選ぶ → 共有 →「旅に記録」をタップ。位置と撮影時刻から、予定の場所なら「予定通り」、それ以外なら「寄り道」として自動で記録されます。最後に、登録されたピンが地図で開きます。</span>
+  </section>
+
+  <section class="card stack">
+    <h2>準備：3つの値をメモする</h2>
+    <p class="hint">アプリの「設定」→「記録キーを表示」で、送り先のURLと記録キーをコピーできます。</p>
+    <div class="kv">
+      <span>送り先URL</span><span>https://（あなたのプロジェクト）.supabase.co/functions/v1/ingest-photo</span>
+      <span>記録キー</span><span>48文字の英数字（人に見せない）</span>
+      <span>アプリのURL</span><span>https://（GitHubのユーザー名）.github.io/futari-tabi/</span>
+    </div>
+  </section>
+
+  <section class="card stack">
+    <h2>作り方</h2>
+    <ol class="steps">
+      <li>「ショートカット」アプリ →「＋」で新規作成。名前を<b>旅に記録</b>にする。</li>
+      <li>画面下の <span class="act">ⓘ</span>（詳細）→「<b>共有シートに表示</b>」をオン。受け入れる種類は「<b>イメージ</b>」だけにする。</li>
+      <li><span class="act">テキスト</span> を追加し、<b>アプリのURL</b>を入れる。</li>
+      <li><span class="act">変数を設定</span> を追加し、名前を <b>アプリURL</b> にする（入力：上のテキスト）。</li>
+      <li><span class="act">各項目を繰り返す</span> を追加し、対象を「<b>ショートカットの入力</b>」にする。<br>ここから下は、繰り返しの中に入れます。</li>
+      <li><span class="act">イメージの詳細を取得</span> →「<b>位置情報</b>」（対象：繰り返し項目）。</li>
+      <li><span class="act">位置情報の詳細を取得</span> →「<b>緯度</b>」。続けて <span class="act">変数を設定</span>「緯度」。</li>
+      <li>もう一度 <span class="act">位置情報の詳細を取得</span> →「<b>経度</b>」（対象：6の位置情報）。<span class="act">変数を設定</span>「経度」。</li>
+      <li><span class="act">イメージの詳細を取得</span> →「<b>撮影日</b>」（対象：繰り返し項目）→ <span class="act">日付をフォーマット</span>「<b>ISO 8601</b>」、時刻を含める。<span class="act">変数を設定</span>「撮影日」。</li>
+      <li><span class="act">イメージのサイズを変更</span>（繰り返し項目・幅 <b>1600</b>）→ <span class="act">イメージを変換</span>「<b>JPEG</b>」→ <span class="act">Base64エンコード</span>（改行：<b>なし</b>）。<span class="act">変数を設定</span>「写真」。</li>
+      <li><span class="act">URLの内容を取得</span> を追加：
+        <div class="kv" style="margin-top:6px">
+          <span>URL</span><span>送り先URL</span>
+          <span>方法</span><span>POST</span>
+          <span>ヘッダ</span><span>x-ingest-key ＝ 記録キー</span>
+          <span>本文を要求</span><span>JSON</span>
+          <span>lat</span><span>変数「緯度」</span>
+          <span>lng</span><span>変数「経度」</span>
+          <span>taken_at</span><span>変数「撮影日」</span>
+          <span>image</span><span>変数「写真」</span>
+        </div></li>
+      <li><span class="act">辞書の値を取得</span>「<b>open_path</b>」（対象：URLの内容）→ <span class="act">変数を設定</span>「開く場所」。</li>
+      <li><span class="act">辞書の値を取得</span>「<b>message</b>」（対象：URLの内容）→ <span class="act">変数を設定</span>「結果」。</li>
+      <li>ここで繰り返しが終わります（「繰り返しの終了」の下へ）。</li>
+      <li><span class="act">通知を表示</span>：変数「結果」。</li>
+      <li><span class="act">テキスト</span>：変数「アプリURL」のすぐ後ろに変数「開く場所」を並べる → <span class="act">URLを開く</span>。</li>
+    </ol>
+  </section>
+
+  <section class="card stack">
+    <h2>ためしてみる</h2>
+    <ol class="steps">
+      <li>写真アプリで、旅先で撮った写真を1枚選ぶ → 共有 →「旅に記録」。</li>
+      <li>初回は「URLへの接続を許可しますか？」などが出るので「許可」。</li>
+      <li>通知に「〜と記録しました」と出て、地図が開けば成功です。</li>
+    </ol>
+    <p class="hint">「位置情報がありません」と出たら：設定 → プライバシー → 位置情報サービス → カメラ を「このAppの使用中」に。LINEなどで受け取った写真は位置が消えていることがあります。</p>
+  </section>
+
+  <section class="card stack">
+    <h2>奥さまのiPhoneへ</h2>
+    <ol class="steps">
+      <li>ショートカットを長押し →「共有」→「iCloudリンクをコピー」して送る（リンクには記録キーも含まれます。<b>先に記録キーの文字を消してから</b>共有してください）。</li>
+      <li>奥さまはリンクから「ショートカットを追加」。</li>
+      <li>奥さまのアプリの「設定」→「記録キーを表示」でキーをコピーし、ショートカットの「x-ingest-key」の値に貼る。</li>
+    </ol>
+  </section>
+
+  <section class="notice warn stack">
+    <b>知っておくこと</b>
+    <span>iPhoneの仕組み上、ショートカットからはホーム画面のアプリではなく<b>Safari</b>で地図が開きます。Safariでも1回ログインしておくと、結果がそのまま見られます。</span>
+  </section>
+</main>
+</body>
+</html>
