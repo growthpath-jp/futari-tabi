@@ -106,6 +106,11 @@ create table if not exists public.ingest_keys (
   created_at timestamptz not null default now()
 );
 
+-- 予定（計画）のための項目。旅：始まり・終わり・宿・移動手段・並び順／場所：何日目・時刻・滞在・優先度・休み
+-- 形は js/plan.js の normalizePlan / placePlan を参照。共有（引き出し）には出さない
+alter table public.trips  add column if not exists plan jsonb not null default '{}'::jsonb;
+alter table public.places add column if not exists plan jsonb not null default '{}'::jsonb;
+
 create index if not exists places_trip_idx on public.places(trip_id);
 create index if not exists places_group_idx on public.places(group_id);
 create index if not exists photos_place_idx on public.photos(place_id);

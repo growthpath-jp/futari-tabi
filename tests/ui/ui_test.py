@@ -33,7 +33,7 @@ with sync_playwright() as p:
     pg.on('pageerror', lambda e: errors.append(str(e)))
     pg.goto('http://127.0.0.1:8765/'); pg.wait_for_selector('.bar h1')
     check('1 ホーム：お試しモードの表示', pg.locator('.demo-badge').is_visible())
-    check('1 ホーム：見本の旅が2つ', pg.locator('.list .item').count() == 2, pg.locator('.list .item').count())
+    check('1 ホーム：見本の旅が3つ（神戸・京都・北海道）', pg.locator('.list .item').count() == 3, pg.locator('.list .item').count())
     pg.screenshot(path='s1-home.png')
     pg.get_by_text('京都旅行（例）').click(); pg.wait_for_selector('#chips .chip')
     m = pg.evaluate('window.__map')

@@ -1,14 +1,16 @@
 // お試しモード：このスマホの中だけに保存する（Supabase 未設定のとき）
-const KEY = 'futari-tabi-demo-v1';
+// データの形は本番（Supabase）と同じ。違うのは保存場所だけ
+import { kobeTrip, kobePlaces } from './demo-kobe.js';
+const KEY = 'futari-tabi-demo-v2';
 const uid = () => (crypto.randomUUID ? crypto.randomUUID() : 'id-' + Math.random().toString(36).slice(2) + Date.now());
 
 function seed() {
   const g = 'demo-group';
-  const kyoto = { id: 'demo-kyoto', group_id: g, title: '京都旅行（例）', start_date: '2026-11-13', end_date: '2026-11-15', closed: true, created_at: '2026-10-01T00:00:00Z' };
-  const hokkaido = { id: 'demo-hokkaido', group_id: g, title: '北海道旅行（例）', start_date: '2026-03-01', end_date: '2026-03-04', closed: true, created_at: '2026-02-01T00:00:00Z' };
+  const kyoto = { id: 'demo-kyoto', group_id: g, plan: {}, title: '京都旅行（例）', start_date: '2026-11-13', end_date: '2026-11-15', closed: true, created_at: '2026-10-01T00:00:00Z' };
+  const hokkaido = { id: 'demo-hokkaido', group_id: g, plan: {}, title: '北海道旅行（例）', start_date: '2026-03-01', end_date: '2026-03-04', closed: true, created_at: '2026-02-01T00:00:00Z' };
   const P = (trip, name, lat, lng, status, reg, vis, extra) => ({
     id: uid(), trip_id: trip.id, group_id: g, name, address: '', lat, lng, status, source: 'name', note: '',
-    adjusted: false, registered_at: reg, visited_at: vis, ...(extra || {}),
+    adjusted: false, registered_at: reg, visited_at: vis, plan: {}, ...(extra || {}),
   });
   const places = [
     P(kyoto, '清水寺', 34.9949, 135.7850, 'visited', '2026-10-02T10:00:00Z', '2026-11-14T01:20:00Z', { address: '京都府京都市東山区清水1丁目294', source: 'address', note: '朝いちばんで空いていた' }),
@@ -22,11 +24,13 @@ function seed() {
     P(hokkaido, '五稜郭タワー', 41.7948, 140.7537, 'visited', '2026-02-02T00:01:00Z', '2026-03-02T02:00:00Z'),
     P(hokkaido, '朝市の食堂', 41.7737, 140.7266, 'detour', '2026-03-02T00:00:00Z', '2026-03-02T00:00:00Z', { source: 'photo' }),
   ];
+  const kobe = kobeTrip(g);
+  places.push(...kobePlaces(['arima', 'tottei', 'sumaura']).map((p) => ({ id: uid(), group_id: g, note: '', adjusted: false, visited_at: null, ...p })));
   const drawers = [
     { id: uid(), group_id: g, name: '次こそ行く場所', filter: { trips: 'all', statuses: ['missed'], colorDetour: true, connect: true }, created_at: '2026-10-03T00:00:00Z' },
     { id: uid(), group_id: g, name: 'ふたりの寄り道コレクション', filter: { trips: 'all', statuses: ['detour'], colorDetour: true, connect: true }, created_at: '2026-10-02T00:00:00Z' },
   ];
-  return { trips: [kyoto, hokkaido], places, photos: [], drawers, shares: [], group: { id: g, name: 'ふたりの旅', invite_code: 'OTAMESHI', members: [{ display_name: 'あなた' }] } };
+  return { trips: [kobe, kyoto, hokkaido], places, photos: [], drawers, shares: [], group: { id: g, name: 'ふたりの旅', invite_code: 'OTAMESHI', members: [{ display_name: 'あなた' }] } };
 }
 
 export function createLocalStore() {
@@ -47,13 +51,13 @@ export function createLocalStore() {
     async signIn() {}, async signUp() { return { needsConfirm: false }; }, async signOut() {},
     async resetDemo() { db = seed(); save(); },
 
-    async listTrips() { return [...db.trips].sort((a, b) => String(b.start_date || '9').localeCompare(String(a.start_date || '9'))); },
-    async createTrip(t) { const r = { id: uid(), group_id: db.group.id, closed: false, created_at: now(), ...t }; db.trips.push(r); save(); return r; },
+    async listTrips() { return JSON.parse(JSON.stringify(db.trips)).sort((a, b) => String(b.start_date || '9').localeCompare(String(a.start_date || '9'))); },
+    async createTrip(t) { const r = { id: uid(), group_id: db.group.id, closed: false, plan: {}, created_at: now(), ...t }; db.trips.push(r); save(); return r; },
     async updateTrip(id, patch) { const t = db.trips.find((x) => x.id === id); Object.assign(t, patch); save(); return t; },
     async deleteTrip(id) { db.trips = db.trips.filter((t) => t.id !== id); db.places = db.places.filter((p) => p.trip_id !== id); save(); },
 
-    async listPlaces() { return db.places.map((p) => ({ ...p })); },
-    async addPlace(p) { const r = { id: uid(), group_id: db.group.id, registered_at: now(), visited_at: null, adjusted: false, note: '', ...p }; db.places.push(r); save(); return r; },
+    async listPlaces() { return JSON.parse(JSON.stringify(db.places)); },
+    async addPlace(p) { const r = { id: uid(), group_id: db.group.id, registered_at: now(), visited_at: null, adjusted: false, note: '', plan: {}, ...p }; db.places.push(r); save(); return r; },
     async updatePlace(id, patch) { const p = db.places.find((x) => x.id === id); Object.assign(p, patch); save(); return p; },
     async updatePlaces(patches) { for (const { id, ...patch } of patches) Object.assign(db.places.find((x) => x.id === id), patch); save(); },
     async deletePlace(id) { db.places = db.places.filter((p) => p.id !== id); db.photos = db.photos.filter((p) => p.place_id !== id); save(); },

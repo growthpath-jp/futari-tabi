@@ -77,8 +77,9 @@ export function autoOrder(day, items, mode) {
   const fixed = items.filter((x) => x.at != null).sort((a, b) => a.at - b.at);
   const free = items.filter((x) => x.at == null);
   // 宿を当日探す日は終わりの場所がない（最後の場所で1日が終わる）
-  const end = day.end || day.start;
-  const center = { lat: (day.start.lat + end.lat) / 2, lng: (day.start.lng + end.lng) / 2 };
+  // 始まり・終わりが決まっていない日もある（決まっている方、なければ場所の真ん中を基準に）
+  const ends = [day.start, day.end].filter(Boolean);
+  const center = ends.length ? { lat: avg(ends, 'lat'), lng: avg(ends, 'lng') } : { lat: avg(items, 'lat'), lng: avg(items, 'lng') };
   const byFar = (a, b) => distanceM(center, b) - distanceM(center, a);
   const must = free.filter((x) => x.priority !== 'maybe').sort(byFar);
   const maybe = free.filter((x) => x.priority === 'maybe').sort(byFar);
@@ -177,4 +178,131 @@ export function bearingText(a, b) {
   const m = distanceM(a, b);
   const dist = m < 1000 ? `${Math.round(m / 10) * 10}m` : `${(m / 1000).toFixed(1)}km`;
   return `${dirs[Math.round(deg / 45) % 8]}へ${dist}`;
+}
+
+// ======================================================================
+// 旅ぜんたいの予定（アプリ本体・お試しモード・テストで共通）
+// ======================================================================
+
+// ---------- 日付 ----------
+const WD = ['日', '月', '火', '水', '木', '金', '土'];
+// 祝日：毎年同じ日＋2026年の動く祝日（2027年以降は必要になったら足す）
+const FIXED_HOLIDAYS = ['01-01', '02-11', '02-23', '04-29', '05-03', '05-04', '05-05', '08-11', '11-03', '11-23'];
+const MOVING_HOLIDAYS = ['2026-01-12', '2026-03-20', '2026-05-06', '2026-07-20', '2026-09-21', '2026-09-22', '2026-09-23', '2026-10-12'];
+export const isHoliday = (date) => FIXED_HOLIDAYS.includes(date.slice(5)) || MOVING_HOLIDAYS.includes(date);
+
+export function tripDates(trip) {
+  if (!trip || !trip.start_date) return [];
+  const out = [];
+  const end = trip.end_date || trip.start_date;
+  for (let t = Date.parse(trip.start_date + 'T00:00:00Z'); out.length < 14; t += 86400000) {
+    const date = new Date(t).toISOString().slice(0, 10);
+    if (date > end) break;
+    const weekday = new Date(t).getUTCDay(), holiday = isHoliday(date);
+    out.push({ date, weekday, holiday, label: `${Number(date.slice(5, 7))}/${Number(date.slice(8))}(${WD[weekday]}${holiday ? '・祝' : ''})` });
+  }
+  return out;
+}
+
+// 休みのルール { weekdays:[0-6], nth:[第何週], holidayOpen:祝日は開いている }
+export function closedOn(rule, d) {
+  if (!rule || !Array.isArray(rule.weekdays) || !rule.weekdays.includes(d.weekday)) return false;
+  if (rule.nth && rule.nth.length && !rule.nth.includes(Math.floor((Number(d.date.slice(8)) - 1) / 7) + 1)) return false;
+  if (rule.holidayOpen && d.holiday) return false;
+  return true;
+}
+
+// ---------- 旅の予定の形 ----------
+// trip.plan = {
+//   mode: 'train'|'walk'|'car',
+//   arrive: { name, lat, lng, via, time } | null   旅の始まり（どこに・何時に着く）
+//   leave:  { name, lat, lng, via, time } | null   旅の終わり（どこから・何時に出る）
+//   nights: [{ status:'booked'|'tbd'|'free', hotel:{name,lat,lng}|null, checkin, lastIn, checkout }]  泊ごと
+//   starts: [null, '9:00', ...]                     2日目からの出発時刻
+//   manual: { '日の番号': [場所id...] }              手で直した順番
+// }
+export const NIGHT_DEFAULT = { checkin: '15:00', lastIn: '22:00', checkout: '11:00' };
+export function normalizePlan(plan, nDays) {
+  const p = plan || {};
+  const nights = Array.from({ length: Math.max(0, nDays - 1) }, (_, i) => ({ status: 'tbd', hotel: null, ...NIGHT_DEFAULT, ...((p.nights || [])[i] || {}) }));
+  const starts = Array.from({ length: nDays }, (_, i) => (i === 0 ? null : (p.starts || [])[i] || '9:00'));
+  return { mode: p.mode || 'train', arrive: p.arrive || null, leave: p.leave || null, nights, starts, manual: { ...(p.manual || {}) } };
+}
+// place.plan = { day, at, until, open, stay, priority:'must'|'maybe', closed:{weekdays,nth,holidayOpen} }
+export function placePlan(p) {
+  const x = (p && p.plan) || {};
+  return { day: x.day ?? null, at: x.at || null, until: x.until || null, open: x.open || null, stay: x.stay || 60, priority: x.priority === 'maybe' ? 'maybe' : 'must', closed: x.closed || null };
+}
+
+// 宿を当日探す日は、仮に三宮…ではなく「その旅の場所の真ん中あたり」に置いて日割りだけ計算する
+const middle = (list) => (list.length ? { lat: list.reduce((s, x) => s + x.lat, 0) / list.length, lng: list.reduce((s, x) => s + x.lng, 0) / list.length } : null);
+
+function nightPoint(n, fallback) {
+  if (n.status === 'booked' && n.hotel) return { ...n.hotel, kind: 'hotel' };
+  return { name: n.status === 'free' ? '当日探す' : '宿（まだ）', ...fallback, kind: n.status === 'free' ? 'free' : 'tbd', tbd: true };
+}
+
+export function makeDays(dates, plan, around) {
+  const last = dates.length - 1;
+  const fb = around || { lat: 0, lng: 0 };
+  return dates.map((d, i) => {
+    const cur = i < last ? plan.nights[i] : null;
+    const leaveT = plan.leave && plan.leave.time ? hm(plan.leave.time) - 15 : hm('21:00');
+    return {
+      ...d,
+      start: i === 0 ? (plan.arrive && plan.arrive.lat != null ? { ...plan.arrive, kind: 'station' } : null) : nightPoint(plan.nights[i - 1], fb),
+      startTime: hm(i === 0 ? (plan.arrive && plan.arrive.time) || '9:00' : plan.starts[i]),
+      end: i === last ? (plan.leave && plan.leave.lat != null ? { ...plan.leave, kind: 'station' } : null) : cur.status === 'free' ? null : nightPoint(cur, fb),
+      endTime: i === last ? leaveT : hm(cur.status === 'free' ? '23:00' : cur.lastIn),
+    };
+  });
+}
+
+// 予定を組む。行きたい（want）の場所だけを使う
+// tm（旅行中）：{ today: 日の番号, now: 'H:MM', here: {lat,lng} | null }
+export function planTrip(trip, places, tm) {
+  const dates = tripDates(trip);
+  if (!dates.length) return null;
+  const plan = normalizePlan(trip.plan, dates.length);
+  const mode = plan.mode;
+  const wants = places.filter((p) => p.trip_id === trip.id && p.status === 'want');
+  const items = wants.map((p) => {
+    const x = placePlan(p);
+    return {
+      ...p, id: p.id, name: p.name || '名前なしの場所', stay: x.stay, priority: x.priority,
+      day: x.day != null && x.day < dates.length ? x.day : null,
+      at: x.at ? hm(x.at) : null, until: x.until ? hm(x.until) : null, open: x.open ? hm(x.open) : null,
+      closed: dates.map((d, i) => (closedOn(x.closed, d) ? i : -1)).filter((i) => i >= 0),
+    };
+  });
+  const days = makeDays(dates, plan, middle(items));
+  const assign = rebalance(days, items, autoAssign(days, items, {}, mode), {}, mode);
+  const out = [];
+  days.forEach((day0, d) => {
+    let day = day0;
+    // 前の夜が「当日探す」なら、前の日の最後の場所の近くから出発
+    const prevLast = d > 0 && out[d - 1].order[out[d - 1].order.length - 1];
+    if (d > 0 && plan.nights[d - 1].status === 'free') {
+      day = { ...day, start: prevLast ? { name: `${prevLast.name}の近く`, lat: prevLast.lat, lng: prevLast.lng, kind: 'near' } : null };
+    }
+    const its = items.filter((p) => assign.get(p.id) === d);
+    let order, skipped = [];
+    const manual = plan.manual[d];
+    if (manual && manual.length) {
+      order = manual.map((id) => its.find((p) => p.id === id)).filter(Boolean);
+      for (const p of its) {
+        if (order.includes(p)) continue;
+        const b = bestInsert(day, order, p, mode);
+        if (p.priority === 'maybe' && (b.sim.over > 0 || b.sim.late > simulate(day, order, mode).late)) skipped.push(p);
+        else order = b.order;
+      }
+    } else ({ order, skipped } = autoOrder(day, its, mode));
+    let sim = simulate(day, order, mode), simDay = day;
+    if (tm && tm.today === d && tm.here) {
+      simDay = { ...day, start: { ...tm.here, name: '今いる場所', kind: 'here' }, startTime: hm(tm.now) };
+      sim = simulate(simDay, order, mode);
+    }
+    out.push({ ...day, d, day, simDay, order, skipped, sim, edited: !!(manual && manual.length) });
+  });
+  return { dates, plan, mode, days: out };
 }

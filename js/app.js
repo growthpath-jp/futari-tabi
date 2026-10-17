@@ -6,7 +6,10 @@ import {
   closeTripPatches, formatDateRange, describeFilter, tokyoDate,
 } from './logic.js';
 import { geocodeAddress, searchByName } from './geo.js';
-import { createMap, drawPlaces, focusPlace, onMapTap, center, destroyMap } from './map.js';
+import { createMap, drawPlaces, drawPlan, drawStations, focusPlace, onMapTap, center, destroyMap } from './map.js';
+import { planTrip, placePlan, tripDates } from './plan.js';
+import { createPlanView, planFields, readPlanFields } from './plan-view.js';
+import { showGuide, mountGuide } from './guide.js';
 
 const app = document.getElementById('app');
 let store, me;
@@ -211,9 +214,12 @@ async function renderHome(tab) {
 async function renderTrip(tripId, q) {
   view.name = 'trip';
   await reload();
-  const trip = data.trips.find((t) => t.id === tripId);
+  let trip = data.trips.find((t) => t.id === tripId);
   if (!trip) { toast('旅が見つかりません', 'error'); return go('#/'); }
+  const today = tokyoDate(new Date().toISOString());
   const st = {
+    // 予定：これからの旅を組む ／ 記録：行った・行けなかった・寄り道を地図で見る
+    tab: q.get('tab') || (trip.start_date && !trip.closed && (trip.end_date || trip.start_date) >= today ? 'plan' : 'record'),
     statuses: q.get('st') ? q.get('st').split(',') : [...STATUSES],
     colorDetour: true, connect: true,
     selectedId: q.get('focus') || null, adjustId: null, tapToPlace: null,
@@ -234,9 +240,14 @@ async function renderTrip(tripId, q) {
     </div>
     <div class="row-inline"><button class="btn primary" type="submit">保存</button><button class="btn" type="button" id="et-cancel">やめる</button></div>
   </form>
-  <div class="chips" id="chips" role="group" aria-label="表示する場所"></div>
+  <nav class="segs trip-tabs" aria-label="表示の切り替え">
+    <a class="seg ${st.tab === 'plan' ? 'on' : ''}" href="#/trip/${tripId}?tab=plan" ${st.tab === 'plan' ? 'aria-current="page"' : ''}>予定</a>
+    <a class="seg ${st.tab === 'record' ? 'on' : ''}" href="#/trip/${tripId}?tab=record" ${st.tab === 'record' ? 'aria-current="page"' : ''}>記録</a>
+  </nav>
+  <div class="chips" id="chips" role="group" aria-label="表示する場所" ${st.tab === 'plan' ? 'hidden' : ''}></div>
   <div class="map-wrap"><div id="map" class="map" role="region" aria-label="旅の地図"></div><div class="map-hint" id="map-hint" hidden></div></div>
   <main class="page stack-lg">
+    ${showGuide(store, trip) ? '<section class="card stack guide" id="guide" aria-live="polite"></section>' : ''}
     <div id="close-banner"></div>
     <section class="card stack" id="sheet" hidden aria-live="polite"></section>
     <section class="card stack" aria-labelledby="add-h">
@@ -250,11 +261,12 @@ async function renderTrip(tripId, q) {
       <div class="row-inline"><input id="add-text" placeholder="住所または名前（例：嵐山 竹林）"><button class="btn" id="add-go" type="button">探す</button></div>
       <div id="add-result" aria-live="polite"></div>
     </section>
+    ${st.tab === 'plan' ? '<section class="stack-lg" id="plan-area" aria-live="polite"></section>' : `
     <section class="stack">
       <div class="row-between"><h2>表示中の場所</h2><span class="sub" id="count"></span></div>
       <ul class="list" id="place-list"></ul>
     </section>
-    <a class="btn block" id="to-drawer" href="#">${icon.drawer}この表示を引き出しにしまう</a>
+    <a class="btn block" id="to-drawer" href="#">${icon.drawer}この表示を引き出しにしまう</a>`}
   </main>`;
 
   view.map = createMap($('#map'));
@@ -276,7 +288,33 @@ async function renderTrip(tripId, q) {
     paint();
   });
 
+  // --- 予定タブ ---
+  const refresh = async (fit) => { await reload(); trip = data.trips.find((t) => t.id === tripId) || trip; paint(fit); };
+  const pv = st.tab === 'plan' ? createPlanView({
+    el: $('#plan-area'), getTrip: () => trip, getPlaces: () => data.places, store, guard, toast,
+    refresh: () => refresh(false), repaint: (fit, at) => { paint(fit); if (at) focusPlace(view.map, at); },
+    openPlace: (id) => { st.selectedId = id; st.adjustId = null; paint(false); $('#sheet').scrollIntoView({ behavior: 'smooth', block: 'start' }); },
+    searchAny,
+  }) : null;
+  if (pv) view.cleanup.push(pv.destroy);
+  // 旅行中モード：地図をタップして「今いる場所」
+  view.cleanup.push(onMapTap(view.map, (lat, lng) => { if (pv && pv.ui.tm.on && !st.tapToPlace) { pv.setHere({ lat, lng }); paint(false); } }));
+  if (showGuide(store, trip)) mountGuide({ el: $('#guide'), store, tripId, guard, toast, refresh });
+
+  function paintPlan(fit) {
+    const res = planTrip(trip, data.places, pv.ui.tm.on ? { today: pv.ui.tm.today, now: pv.ui.tm.now, here: pv.ui.tm.here } : null);
+    pv.render(res);
+    if (res) drawPlan(view.map, res, { tm: pv.ui.tm, selectedId: st.selectedId, fit, onSelect: (p) => { st.selectedId = p.id; paint(false); } });
+    else drawPlaces(view.map, [], { fit });
+    drawStations(view.map, pv.ui.tm.on);
+    const hint = $('#map-hint');
+    if (!st.tapToPlace) { hint.hidden = !(pv.ui.tm.on && !pv.ui.tm.here); hint.textContent = '地図をタップして「今いる場所」を決めてください'; }
+    renderSheet();
+    renderCloseBanner();
+  }
+
   function paint(fit) {
+    if (st.tab === 'plan') return paintPlan(fit);
     renderChips();
     const vis = visible();
     drawPlaces(view.map, vis, {
@@ -298,7 +336,7 @@ async function renderTrip(tripId, q) {
     $('#to-drawer').href = `#/drawer/new?trip=${tripId}&st=${stq}&cd=${st.colorDetour ? 1 : 0}&cn=${st.connect ? 1 : 0}`;
   }
 
-  $('#place-list').addEventListener('click', (e) => {
+  if ($('#place-list')) $('#place-list').addEventListener('click', (e) => {
     const b = e.target.closest('[data-id]'); if (!b) return;
     st.selectedId = b.dataset.id; st.adjustId = null; paint(false);
     focusPlace(view.map, data.places.find((p) => p.id === st.selectedId));
@@ -327,6 +365,7 @@ async function renderTrip(tripId, q) {
     const sheet = $('#sheet');
     const p = data.places.find((x) => x.id === st.selectedId && x.trip_id === tripId);
     if (!p) { sheet.hidden = true; sheet.innerHTML = ''; return; }
+    const dates = tripDates(trip);
     sheet.hidden = false;
     sheet.innerHTML = `
       <div class="row-between"><h2>${esc(p.name || '名前なしの場所')}</h2><button class="btn small" type="button" id="sh-close">閉じる</button></div>
@@ -340,6 +379,8 @@ async function renderTrip(tripId, q) {
         <dt>行った時刻</dt><dd>${esc(p.visited_at ? fmtTime(p.visited_at) : '—')}</dd>
         <dt>位置</dt><dd>${Number(p.lat).toFixed(5)}, ${Number(p.lng).toFixed(5)}${p.adjusted ? '（指で調整済み）' : ''}</dd>
       </dl>
+      ${p.status === 'want' && dates.length ? `<details class="plan-box" ${st.tab === 'plan' ? 'open' : ''}><summary>予定の条件（何日目・時刻・いる時間など）</summary>
+        <form class="stack" id="sh-plan">${planFields('sp', placePlan(p), dates)}<button class="btn primary" type="submit">予定の条件を保存</button></form></details>` : ''}
       <label for="sh-note">ひとことメモ</label>
       <textarea id="sh-note" rows="2" placeholder="共有するとき、見せるかどうか選べます">${esc(p.note || '')}</textarea>
       <div class="photos" id="sh-photos"><span class="sub">写真を読み込み中…</span></div>
@@ -362,6 +403,18 @@ async function renderTrip(tripId, q) {
     $('#sh-name').addEventListener('change', async (e) => { await guard(() => store.updatePlace(p.id, { name: e.target.value.trim() || null }), '名前を保存しました'); await reload(); paint(false); });
     $('#sh-note').addEventListener('change', async (e) => { await guard(() => store.updatePlace(p.id, { note: e.target.value }), 'メモを保存しました'); await reload(); });
     $('#sh-adjust').onclick = () => { st.adjustId = st.adjustId === p.id ? null : p.id; paint(false); };
+    const spf = $('#sh-plan');
+    if (spf) spf.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const next = readPlanFields('sp', spf, placePlan(p));
+      await guard(() => store.updatePlace(p.id, { plan: { ...(p.plan || {}), ...next } }), '予定の条件を保存しました');
+      if ((p.plan || {}).day !== next.day) {
+        const plan = { ...(trip.plan || {}), manual: { ...((trip.plan || {}).manual || {}) } };
+        Object.keys(plan.manual).forEach((d) => { plan.manual[d] = plan.manual[d].filter((x) => x !== p.id); });
+        await guard(() => store.updateTrip(tripId, { plan }));
+      }
+      await refresh(false);
+    });
     $('#sh-photo-in').addEventListener('change', async (e) => {
       for (const file of e.target.files) await guard(() => store.addPhoto(p, file));
       toast('写真を追加しました'); renderSheet();
@@ -379,6 +432,15 @@ async function renderTrip(tripId, q) {
   }
 
   // --- 登録 ---
+  // 住所なら住所で、それ以外は名前で探す（宿・駅を選ぶときも同じ）
+  async function searchAny(text) {
+    const addr = extractAddress(text);
+    if (addr) {
+      const g = await geocodeAddress(addr);
+      return g ? [{ name: text, address: addr, area: addr + (g.approx ? '（番地までは特定できず）' : ''), lat: g.lat, lng: g.lng }] : [];
+    }
+    return searchByName(text, tripPlaces()[0] || center(view.map));
+  }
   const result = $('#add-result');
   async function handleText(text) {
     text = (text || '').trim();
@@ -393,8 +455,7 @@ async function renderTrip(tripId, q) {
       return confirmBox({ name: '', address: addr, lat: g.lat, lng: g.lng, source: 'address', approx: g.approx },
         g.approx ? '番地までは特定できなかったので、近くに仮置きします。登録後にピンを指で調整してください。' : '');
     }
-    const near = tripPlaces()[0] || center(view.map);
-    const list = await guard(() => searchByName(text, near));
+    const list = await guard(() => searchAny(text));
     if (list === undefined) { result.innerHTML = ''; return; }
     if (!list.length) return notFound(text, `「${text}」は見つかりませんでした。`);
     result.innerHTML = `<div class="stack"><b>名前で探しました。近いものを選んでください</b>
@@ -413,7 +474,8 @@ async function renderTrip(tripId, q) {
   }
 
   function confirmBox(cand, warn) {
-    const defStatus = trip.end_date && trip.end_date < tokyoDate(new Date().toISOString()) ? 'visited' : 'want';
+    const defStatus = st.tab === 'plan' ? 'want' : trip.end_date && trip.end_date < tokyoDate(new Date().toISOString()) ? 'visited' : 'want';
+    const dates = tripDates(trip);
     result.innerHTML = `<div class="notice stack ${warn ? 'warn' : ''}">
       <b>${cand.address ? '住所を見つけました' : '場所を選びました'}</b>
       ${cand.address ? `<span>${esc(cand.address)}</span>` : ''}
@@ -421,20 +483,23 @@ async function renderTrip(tripId, q) {
       <label for="cf-name">名前（任意）</label><input id="cf-name" value="${esc(cand.name)}" placeholder="例：清水寺">
       <label for="cf-status">状態</label>
       <select id="cf-status">${STATUSES.map((s) => `<option value="${s}" ${s === defStatus ? 'selected' : ''}>${STATUS_LABEL[s]}</option>`).join('')}</select>
+      ${dates.length ? `<div class="stack" id="cf-plan" ${defStatus === 'want' ? '' : 'hidden'}>${planFields('cp', placePlan({}), dates)}</div>` : ''}
       <div class="row-inline"><button class="btn primary" type="button" id="cf-ok">この場所を登録する</button><button class="btn" type="button" id="cf-no">やめる</button></div></div>`;
     $('#cf-no').onclick = () => { result.innerHTML = ''; };
+    $('#cf-status').onchange = (e) => { const b = $('#cf-plan'); if (b) b.hidden = e.target.value !== 'want'; };
     $('#cf-ok').onclick = async () => {
       const status = $('#cf-status').value;
       const p = await guard(() => store.addPlace({
         trip_id: tripId, name: $('#cf-name').value.trim() || null, address: cand.address || null,
         lat: cand.lat, lng: cand.lng, status, source: cand.source,
         visited_at: status === 'visited' || status === 'detour' ? new Date().toISOString() : null,
+        plan: status === 'want' && $('#cf-plan') ? readPlanFields('cp', $('#cf-plan')) : {},
       }), '登録しました');
       if (!p) return;
       result.innerHTML = ''; $('#add-text').value = '';
       if (!st.statuses.includes(status)) st.statuses = STATUSES.filter((x) => x === status || st.statuses.includes(x));
-      st.selectedId = p.id; st.adjustId = cand.approx ? p.id : null;
-      await reload(); paint(false); focusPlace(view.map, p);
+      st.selectedId = st.tab === 'plan' && !cand.approx ? null : p.id; st.adjustId = cand.approx ? p.id : null;
+      await refresh(false); focusPlace(view.map, p);
     };
   }
 
@@ -489,7 +554,7 @@ async function renderTrip(tripId, q) {
     await guard(() => store.deleteTrip(tripId), '削除しました'); go('#/');
   };
 
-  view.cleanup.push(store.subscribe(async () => { await reload(); paint(false); }));
+  view.cleanup.push(store.subscribe(() => refresh(false)));
   paint(true);
   if (st.selectedId) focusPlace(view.map, data.places.find((p) => p.id === st.selectedId));
 }
