@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-  <title>順番と日割りのテスト</title>
+  <title>神戸旅行テスト</title>
   <meta name="theme-color" content="#1E6B66">
   <link rel="icon" href="../icons/icon-192.png">
   <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Zen+Maru+Gothic:wght@500;700&family=Zen+Kaku+Gothic+New:wght@400;500;700&display=swap">
@@ -14,31 +14,37 @@
 <body>
   <header class="bar">
     <a class="icon-btn" href="../" aria-label="アプリに戻る"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
-    <div class="bar-title"><h1>順番と日割りのテスト</h1><span class="sub">見本データで、決め方を比べるためのページです</span></div>
+    <div class="bar-title"><h1>神戸旅行テスト</h1><span class="sub">10/31(土)〜11/3(火・祝)　場所の登録から試すページ</span></div>
   </header>
 
-  <main class="page stack-lg" id="top">
+  <main class="page stack-lg">
     <section class="card stack">
       <label for="sc">シナリオ</label>
       <select id="sc"></select>
       <details id="guide" open>
-        <summary>このシナリオで確かめること・やってみること</summary>
+        <summary>確かめること・やってみること</summary>
         <div class="stack" id="guide-body"></div>
       </details>
+      <button class="btn small" type="button" id="load">このシナリオの最初の状態にする</button>
     </section>
 
-    <section class="stack">
-      <h2>決め方</h2>
-      <div class="segs" role="radiogroup" aria-label="決め方" id="methods"></div>
-      <p class="hint" id="method-desc"></p>
-      <div class="row-inline wrap">
-        <div class="segs small" role="radiogroup" aria-label="移動手段" id="modes"></div>
-        <button class="btn small" type="button" id="reset">最初からやり直す</button>
-      </div>
+    <details class="card" id="trip-set">
+      <summary>旅の設定（新幹線・宿・移動手段）</summary>
+      <div class="stack" id="trip-body"></div>
+    </details>
+
+    <section class="card stack" aria-labelledby="reg-h">
+      <h2 id="reg-h">場所を登録</h2>
+      <label class="sr-only" for="q">場所の名前または住所</label>
+      <div class="row-inline"><input id="q" placeholder="名前または住所（例：南京町）"><button class="btn" type="button" id="search">探す</button></div>
+      <div id="results" aria-live="polite"></div>
+      <span class="label">候補から選ぶ</span>
+      <div class="cand-chips" id="cands"></div>
+      <form class="stack reg-form" id="form" hidden></form>
     </section>
   </main>
 
-  <div class="trip-bar" id="trip-bar">
+  <div class="trip-bar">
     <button class="btn small" type="button" id="trip-toggle" aria-pressed="false">旅行中モード：オフ</button>
     <div class="trip-ctrls" id="trip-ctrls" hidden>
       <label for="today">今日</label><select id="today"></select>
@@ -55,15 +61,15 @@
 
     <section class="card stack" id="feedback">
       <h2>このシナリオの感想</h2>
-      <fieldset class="stack"><legend>一番しっくりきた決め方</legend>
-        <div class="grid2" id="fb-best"></div>
-      </fieldset>
+      <fieldset class="stack"><legend>しっくりきた？</legend><div class="grid2" id="fb-fit"></div></fieldset>
+      <fieldset class="stack"><legend>登録するときに決めたかったこと（いくつでも）</legend><div class="stack" id="fb-want"></div></fieldset>
       <label for="fb-memo">感じたこと（ひとことでOK）</label>
-      <textarea id="fb-memo" rows="3" placeholder="例：Aは勝手に動きすぎて落ち着かない。予約のある日は自分で決めたい"></textarea>
+      <textarea id="fb-memo" rows="3" placeholder="例：有馬は登録の時に日を決めたい。ほかはおまかせでいい"></textarea>
       <button class="btn primary" type="button" id="fb-copy">全シナリオの感想をコピー</button>
       <pre class="fb-out copy-target" id="fb-out" hidden></pre>
       <p class="hint">コピーした内容を、そのままClaudeとのチャットに貼り付けてください。</p>
     </section>
+    <p class="hint">位置はおおよそです。営業時間は調べた時点の情報なので、実際の旅行前には公式サイトで確認してください。</p>
   </main>
 
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>

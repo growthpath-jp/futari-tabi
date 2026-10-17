@@ -57,3 +57,13 @@ details summary { cursor: pointer; font-weight: 700; font-size: 14px; min-height
 .fb-out { white-space: pre-wrap; font-size: 12px; background: var(--paper); padding: 10px; border-radius: 10px; margin: 0; overflow-wrap: anywhere; }
 #methods { flex-direction: column; }
 #methods .seg { justify-content: flex-start; padding: 8px 12px; text-align: left; }
+.cand-chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.cand-chips .mini { min-height: 38px; }
+.cand-chips .mini.added { opacity: .45; }
+.reg-form { border-top: 1px solid var(--line); padding-top: 12px; }
+.reg-form .row2 select, .reg-form .row2 input { min-height: 44px; }
+.results { display: flex; flex-direction: column; gap: 6px; }
+.results .item { background: var(--paper); }
+.prow .edit { grid-column: 3 / 5; }
+.trip-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.trip-grid .stack { min-width: 0; }

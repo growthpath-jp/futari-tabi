@@ -37,6 +37,7 @@ export function simulate(day, items, mode) {
     const mv = travelMin(pos, it, mode);
     travel += mv; t += mv;
     let wait = 0, warn = null;
+    if (it.open != null && it.at == null && t < it.open) { wait = it.open - t; t = it.open; }
     if (it.at != null) {
       if (t < it.at) { wait = it.at - t; t = it.at; }
       else if (t > it.at + 1) { late += t - it.at; warn = `予約の${fmt(it.at)}に${Math.round(t - it.at)}分遅れます`; }
@@ -92,69 +93,42 @@ export function autoOrder(day, items, mode) {
 }
 
 // ---------- 日への振り分け ----------
-// 宿が日ごとに違う旅 → 各日の出発・到着地に近い日へ
-// 毎日同じ宿の旅 → 近い場所どうしを日数分のまとまりに分ける
-export function autoAssign(days, items, pinned) {
+// 1か所ずつ「その日に入れたら移動がどれだけ増えるか」＋「その日の混み具合」が一番小さい日へ入れる
+// （宿や出発・到着の場所が日ごとに違っても、その位置からの移動で自然に判断される）
+export function autoAssign(days, items, pinned, mode = 'train') {
   const res = new Map();
-  const free = [];
-  for (const it of items) {
-    if (pinned && pinned[it.id] != null) res.set(it.id, pinned[it.id]);
-    else if (it.day != null) res.set(it.id, it.day);
-    else free.push(it);
+  const orders = days.map(() => []);
+  const put = (it, d) => { res.set(it.id, d); orders[d] = bestInsert(days[d], orders[d], it, mode).order; };
+  const fixedDay = (it) => (pinned && pinned[it.id] != null ? pinned[it.id] : it.day != null ? it.day : null);
+  // 日が決まっている場所 → 時刻が決まっている場所 → 絶対 → 行けたら の順に置く
+  const fixed = items.filter((it) => fixedDay(it) != null);
+  fixed.forEach((it) => put(it, fixedDay(it)));
+  if (days.length === 1) { items.forEach((it) => { if (!res.has(it.id)) put(it, 0); }); return res; }
+  const center = { lat: avg(items, 'lat') || 0, lng: avg(items, 'lng') || 0 };
+  const rest = items.filter((it) => fixedDay(it) == null).sort((a, b) =>
+    (a.at != null ? 0 : 1) - (b.at != null ? 0 : 1)
+    || (a.priority === 'maybe' ? 1 : 0) - (b.priority === 'maybe' ? 1 : 0)
+    || distanceM(center, b) - distanceM(center, a));
+  for (const it of rest) {
+    let best = -1, bestScore = Infinity;
+    days.forEach((day, d) => {
+      if (isClosed(it, d)) return;
+      const before = simulate(day, orders[d], mode);
+      const b = bestInsert(day, orders[d], it, mode);
+      // 混み具合＝移動と滞在の合計（予約までの待ち時間は空いている時間として数える）
+      const busy = b.sim.travel + b.order.reduce((m, x) => m + (x.stay || 0), 0);
+      const load = busy / Math.max(60, day.endTime - day.startTime);
+      const score = (b.sim.cost - before.cost) + 90 * load;
+      if (score < bestScore) { bestScore = score; best = d; }
+    });
+    put(it, best < 0 ? 0 : best);
   }
-  if (days.length === 1) { free.forEach((it) => res.set(it.id, 0)); return res; }
-
-  // 各日の拠点（出発と到着の中間）がどれも3km以内なら「毎日同じ拠点の旅」とみなす
-  const home = (d) => ({ lat: (d.start.lat + d.end.lat) / 2, lng: (d.start.lng + d.end.lng) / 2 });
-  const sameBase = days.every((d) => distanceM(home(d), home(days[0])) < 3000);
-  if (!sameBase) {
-    for (const it of free) {
-      let bi = 0, bd = Infinity;
-      days.forEach((d, i) => {
-        const dd = Math.min(distanceM(d.start, it), distanceM(d.end, it));
-        if (dd < bd) { bd = dd; bi = i; }
-      });
-      res.set(it.id, bi);
-    }
-    return res;
-  }
-
-  // まとまりに分ける（k-means）。すでに日が決まっている場所はその日の中心の種にする
-  const k = days.length;
-  const centers = new Array(k).fill(null);
-  for (let i = 0; i < k; i++) {
-    const fixed = items.filter((it) => res.get(it.id) === i);
-    if (fixed.length) centers[i] = { lat: avg(fixed, 'lat'), lng: avg(fixed, 'lng') };
-  }
-  const pool = [...free];
-  for (let i = 0; i < k; i++) {
-    if (centers[i] || !pool.length) continue;
-    const known = centers.filter(Boolean);
-    let pick = pool[0], pd = -1;
-    for (const p of pool) {
-      const d = known.length ? Math.min(...known.map((c) => distanceM(c, p))) : distanceM(days[0].start, p);
-      if (d > pd) { pd = d; pick = p; }
-    }
-    centers[i] = { lat: pick.lat, lng: pick.lng };
-  }
-  let assign = new Map();
-  for (let iter = 0; iter < 12; iter++) {
-    assign = new Map();
-    for (const it of free) {
-      let bi = 0, bd = Infinity;
-      centers.forEach((c, i) => { if (!c) return; const d = distanceM(c, it); if (d < bd) { bd = d; bi = i; } });
-      assign.set(it.id, bi);
-    }
-    for (let i = 0; i < k; i++) {
-      const members = [...items.filter((it) => res.get(it.id) === i), ...free.filter((it) => assign.get(it.id) === i)];
-      if (members.length) centers[i] = { lat: avg(members, 'lat'), lng: avg(members, 'lng') };
-    }
-  }
-  for (const [id, d] of assign) res.set(id, d);
   return res;
 }
 
-const avg = (list, key) => list.reduce((s, x) => s + x[key], 0) / list.length;
+const avg = (list, key) => (list.length ? list.reduce((s, x) => s + x[key], 0) / list.length : 0);
+// その日が休み（定休日など）か
+export const isClosed = (it, dayIndex) => Array.isArray(it.closed) && it.closed.includes(dayIndex);
 
 // 1日に収まらない、または時刻に間に合わない「絶対」の場所を、余裕のある日へ移してみる
 export function rebalance(days, items, assign, pinned, mode) {
@@ -169,7 +143,7 @@ export function rebalance(days, items, assign, pinned, mode) {
     for (const it of movable) {
       let target = -1, bestCost = Infinity;
       for (let e = 0; e < days.length; e++) {
-        if (e === d) continue;
+        if (e === d || isClosed(it, e)) continue;
         const cur = autoOrder(days[e], byDay(e), mode).order;
         const b = bestInsert(days[e], cur, it, mode);
         if (b.sim.over <= 0 && b.sim.late <= simulate(days[e], cur, mode).late && b.sim.cost < bestCost) { bestCost = b.sim.cost; target = e; }
