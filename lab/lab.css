@@ -81,3 +81,8 @@ details summary { cursor: pointer; font-weight: 700; font-size: 14px; min-height
 .terminal .ttime { font-weight: 700; font-variant-numeric: tabular-nums; }
 .terminal.tbd { border-style: dashed; }
 .hotel-pick { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); }
+.dayhead-times { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.tpair { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.tpair label { font-size: 12px; }
+.tpair select { width: 100%; }
+.terminal small.pwarn { color: var(--danger); font-weight: 700; }

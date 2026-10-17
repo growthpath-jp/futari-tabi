@@ -56,11 +56,16 @@ with sync_playwright() as p:
     check('4 11/1の出発が10:30に', '10:30' in sec1.locator('.terminal').first.inner_text())
     over=sec1.locator('.day-warn').count()
     fin=sec1.locator('.terminal').last.inner_text()
-    check('4 18:00までに収まるか、足りなければ表示', over==1 or '18:00までに' in fin, fin)
+    check('4 宿は「18:00着予定」と出る', '18:00着予定' in fin, fin)
+    check('4 遅れる時だけ警告、間に合えば見込み時刻', (over==1 and '遅れます' in fin) or ('見込み' in fin and over==0) or ('まだありません' in fin and over==0), fin)
     # シナリオ④ 予約と行けたら
     pg.select_option('#sc','k4'); pg.wait_for_timeout(200)
     pg.click('[data-cand="dinner"]'); pg.select_option('#f-day','1'); pg.click('#form button[type=submit]'); pg.wait_for_timeout(150)
     t=pg.locator('.prow', has_text='神戸牛').locator('.pmeta').first.inner_text()
+    empty=[i for i in range(4) if len(rows(pg,i))==0 and i<3]
+    if empty:
+        tt=pg.locator('section.day').nth(empty[0]).locator('.terminal').last.inner_text()
+        check('5 場所がない日でも宿は設定した時刻で「着予定」', '21:00着予定' in tt, tt)
     check('5 夕食予約11/1 18:30', '18:30着' in t and 1 in dayIdx(pg,'神戸牛'), t)
     for c in ['kitano','nankinmachi','meriken','harborland','nunobiki','rokko']:
         pg.click(f'[data-cand="{c}"]'); pg.click('#form button[type=submit]'); pg.wait_for_timeout(80)

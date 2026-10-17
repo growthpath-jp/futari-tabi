@@ -283,8 +283,14 @@ function render() {
     const rows = new Map(sim.rows.map((x) => [x.id, x]));
     const start = isToday && st.tm.here ? simDay.start : day.start;
     const startT = isToday && st.tm.here ? simDay.startTime : day.startTime;
-    const startLabel = d === 0 ? '新神戸に着く時刻' : '出発の時刻';
-    const endLabel = d === LAST ? '新神戸に着く（新幹線の15分前）' : '宿に着く時刻（これより前に）';
+    const startLabel = d === 0 ? '新神戸に着く' : '出発';
+    const endLabel = d === LAST ? '新神戸に着く予定' : '宿に着く予定';
+    const planned = day.endTime;
+    const late = Math.max(0, sim.finish - planned);
+    const spare = order.length ? Math.max(0, planned - sim.finish) : 0;
+    const endNote = late > 0 ? `<small class="pwarn">予定より${Math.round(late)}分遅れます（${fmt(sim.finish)}着の見込み）</small>`
+      : order.length ? `<small>最後の場所から移動して${fmt(sim.finish)}ごろに着ける見込み${spare >= 30 ? `（${Math.floor(spare / 60) ? Math.floor(spare / 60) + '時間' : ''}${Math.round(spare % 60) ? Math.round(spare % 60) + '分' : ''}の余裕）` : ''}</small>`
+      : `<small>${d === LAST ? '17:00の新幹線' : 'この日の場所はまだありません'}</small>`;
     const body = list.map((p) => {
       const isDone = doneList.includes(p);
       const x = rows.get(p.id);
@@ -317,15 +323,16 @@ function render() {
     return `<section class="day" aria-label="${esc(day.label)}">
       <div class="day-head"><h2><span class="day-dot" style="background:${DAYC[d % 4]}"></span>${esc(day.label)}${isToday ? '（今日）' : ''}</h2>
         <span class="day-sum">移動 合計${Math.round(sim.travel)}分</span>
-        ${sim.over > 0 ? `<span class="day-warn">時間が${Math.round(sim.over)}分足りません</span>` : ''}
+        ${sim.over > 0 ? `<span class="day-warn">宿に着く予定に${Math.round(sim.over)}分遅れます</span>` : ''}
         ${st.edited[d] ? `<button class="mini" type="button" data-act="auto" data-d="${d}">おまかせの順番に戻す</button>` : ''}</div>
-      <div class="dayhead-times"><label for="ts-${d}">${startLabel}</label>${timeSel('ts-' + d, st.trip.starts[d], '6:00', '15:00')}
-        <label for="te-${d}">${endLabel}</label>${timeSel('te-' + d, st.trip.ends[d], '12:00', '23:00')}</div>
+      <div class="dayhead-times">
+        <div class="tpair"><label for="ts-${d}">${startLabel}</label>${timeSel('ts-' + d, st.trip.starts[d], '6:00', '15:00')}</div>
+        <div class="tpair"><label for="te-${d}">${endLabel}</label>${timeSel('te-' + d, st.trip.ends[d], '10:00', '23:00')}</div></div>
       <div class="terminal ${start.tbd ? 'tbd' : ''}"><span class="kind">出発</span><span class="tname">${esc(start.name)}${d > 0 && !(isToday && st.tm.here) ? '<small>前の夜の宿から</small>' : ''}</span><span class="ttime">${fmt(startT)}</span></div>
       <ul class="day-list" data-d="${d}">${body || '<li class="empty">この日の場所はまだありません</li>'}</ul>
       <div class="terminal ${day.end.tbd ? 'tbd' : ''}"><span class="kind">${endIsHotel ? '宿' : '帰り'}</span>
-        <span class="tname">${esc(day.end.name)}<small>${endIsHotel ? `${fmt(day.endTime)}までに着く予定` : '17:00の新幹線'}</small></span>
-        <span class="ttime">${fmt(sim.finish)}着</span></div>
+        <span class="tname">${esc(day.end.name)}${endNote}</span>
+        <span class="ttime">${fmt(planned)}着予定</span></div>
       ${endIsHotel ? (hotelPick === d ? hotelPicker(d) : `<button class="btn small" type="button" data-hotel-open="${d}">${day.end.tbd ? '宿を選ぶ' : '宿を変える'}</button>`) : ''}
       ${skip}</section>`;
   }).join('');
