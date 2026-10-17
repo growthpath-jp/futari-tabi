@@ -7,6 +7,7 @@
   Map.prototype.fitBounds=function(b){ rec.view={bounds:b}; return this; };
   Map.prototype.getCenter=function(){ return this.c; };
   Map.prototype.getZoom=function(){ return this.zoom; };
+  Map.prototype.getBounds=function(){ const c=this.c; return {getSouth:()=>c.lat-.01,getWest:()=>c.lng-.01,getNorth:()=>c.lat+.01,getEast:()=>c.lng+.01}; };
   Map.prototype.on=function(e,f){ (this.h[e]=this.h[e]||[]).push(f); if(e==='click') rec.clickHandlers=this.h.click; return this; };
   Map.prototype.off=function(e,f){ this.h[e]=(this.h[e]||[]).filter(x=>x!==f); if(e==='click') rec.clickHandlers=this.h.click; return this; };
   Map.prototype.remove=function(){ rec.markers=[]; rec.lines=[]; };
