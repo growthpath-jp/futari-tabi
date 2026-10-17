@@ -1,5 +1,5 @@
 // 旅の画面「予定」タブ：日ごとの予定（到着・出発・場所・宿・帰り）と旅行中モード
-import { hm, fmt, MODES, simulate, replanFrom, gapFillFor, bearingText, travelMin, tripDates, normalizePlan, NIGHT_DEFAULT } from './plan.js';
+import { hm, fmt, MODES, simulate, replanFrom, gapFillFor, reassignDays, placePlan, bearingText, travelMin, tripDates, normalizePlan, NIGHT_DEFAULT } from './plan.js';
 import { DAY_COLORS } from './map.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -45,9 +45,25 @@ export function createPlanView(ctx) {
     const plan = r.plan;
     ctx.el.innerHTML = `
       ${tripModeBox(r)}
+      <button class="btn block" type="button" id="pv-reassign">おまかせの日を組み直す</button>
+      <p class="hint">宿や時刻を変えても、日は自動では変わりません。合わせたいときに押してください（自分で日を決めた場所は動きません）。</p>
       <div class="stack"><span class="label">移動手段</span>
         <div class="segs small" role="radiogroup" aria-label="移動手段">${Object.entries(MODES).map(([k, m]) => `<label class="seg"><input type="radio" name="pv-mode" value="${k}" ${k === plan.mode ? 'checked' : ''}>${m.label}</label>`).join('')}</div></div>
       ${r.days.map((x) => dayHtml(r, x)).join('')}`;
+    saveFirstDays(r);
+  }
+
+  // 日がまだない場所（登録したばかりの「日はおまかせ」）は、今決めた日を1回だけ保存する
+  let saving = false;
+  async function saveFirstDays(r) {
+    if (saving) return;
+    const todo = [];
+    r.days.forEach((x) => [...x.order, ...x.skipped].forEach((p) => { if (placePlan(place(p.id)).day == null) todo.push([p.id, x.d]); }));
+    if (!todo.length) return;
+    saving = true;
+    for (const [id, d] of todo) await ctx.store.updatePlace(id, { plan: { ...(place(id).plan || {}), day: d, auto: true } }).catch(() => {});
+    saving = false;
+    await ctx.refresh();
   }
 
   function tripModeBox(r) {
@@ -82,7 +98,7 @@ export function createPlanView(ctx) {
       const pinnedClosed = p.day != null && p.closed.includes(d);
       const warn = pinnedClosed ? 'この日は休みです' : y && y.warn;
       const tags = [
-        p.day != null ? '<span class="tag">日を決めた</span>' : '',
+        p.day != null && !p.auto ? '<span class="tag">日を決めた</span>' : '',
         p.at != null ? `<span class="tag tag-time">${fmt(p.at)}に行く</span>` : '',
         p.until != null ? `<span class="tag tag-time">〜${fmt(p.until)}</span>` : '',
         p.priority === 'maybe' ? '<span class="tag tag-maybe">行けたら</span>' : '',
@@ -99,7 +115,7 @@ export function createPlanView(ctx) {
         <div class="updown"><button type="button" data-act="up" aria-label="上へ" ${i === 0 ? 'disabled' : ''}>↑</button><button type="button" data-act="down" aria-label="下へ" ${i === x.order.length - 1 ? 'disabled' : ''}>↓</button></div>
         <div class="pctrl">
           <label class="sr-only" for="mv-${p.id}">何日目</label>
-          <select id="mv-${p.id}" data-act="move"><option value="" ${p.day == null ? 'selected' : ''}>日はおまかせ</option>${r.days.map((dd) => `<option value="${dd.d}" ${p.day === dd.d ? 'selected' : ''}>${dd.label}に決める</option>`).join('')}</select>
+          <select id="mv-${p.id}" data-act="move"><option value="" ${p.day == null || p.auto ? 'selected' : ''}>日はおまかせ</option>${r.days.map((dd) => `<option value="${dd.d}" ${p.day === dd.d && !p.auto ? 'selected' : ''}>${dd.label}に決める</option>`).join('')}</select>
           <button class="mini" type="button" data-act="edit">変更</button>
           ${isToday ? '<button class="mini" type="button" data-act="done">行った</button><button class="mini" type="button" data-act="cancel">中止</button>' : ''}
         </div></li>`;
@@ -218,6 +234,14 @@ export function createPlanView(ctx) {
       return navigator.geolocation.getCurrentPosition((pos) => { ui.tm.here = { lat: pos.coords.latitude, lng: pos.coords.longitude }; ctx.repaint(false, ui.tm.here); },
         () => ctx.toast('現在地を取得できませんでした。地図をタップして決めてください', 'error'));
     }
+    if (t.id === 'pv-reassign') {
+      const list = reassignDays(trip(), ctx.getPlaces());
+      const moved = list.filter((m) => m.day !== m.from);
+      for (const m of list) await ctx.guard(() => ctx.store.updatePlace(m.id, { plan: { ...(place(m.id).plan || {}), day: m.day, auto: true } }));
+      if (!moved.length) { await ctx.refresh(); return ctx.toast('組み直しました（日の変わった場所はありません）'); }
+      return savePlan((plan) => moved.forEach((m) => { dropFromManual(plan, m.id); }),
+        `組み直しました：${moved.map((m) => `${m.name}→${res.days[m.day].label}`).join('、')}`);
+    }
     if (t.id === 'pv-replan') {
       const today = res.days[ui.tm.today];
       const { order } = replanFrom(today.day, ui.tm.here, hm(ui.tm.now), today.order, res.mode);
@@ -255,7 +279,7 @@ export function createPlanView(ctx) {
       const moves = gapFillFor(trip(), ctx.getPlaces(), d);
       if (!moves.length) return ctx.toast('この空き時間に入れられる場所はありません（日を決めていない場所から探します）');
       // その日にもともとあった場所も、この日に決める（入れたことで別の日へ動かないように）
-      const keepIds = res.days[d].order.filter((p) => p.day == null).map((p) => p.id);
+      const keepIds = res.days[d].order.filter((p) => p.day == null || p.auto).map((p) => p.id);
       for (const id of [...keepIds, ...moves.map((m) => m.id)]) await ctx.guard(() => ctx.store.updatePlace(id, { plan: { ...(place(id).plan || {}), day: d } }));
       await savePlan((plan) => moves.forEach((m) => dropFromManual(plan, m.id)), `${moves.map((m) => m.name).join('・')}を${res.days[d].label}に入れました`);
     }
@@ -289,7 +313,8 @@ export function createPlanView(ctx) {
     if (t.dataset && t.dataset.act === 'move') {
       const id = t.closest('[data-id]').dataset.id;
       const day = t.value === '' ? null : Number(t.value);
-      await ctx.guard(() => ctx.store.updatePlace(id, { plan: { ...(place(id).plan || {}), day } }));
+      // 日を選ぶ＝自分で決めた日。「日はおまかせ」に戻すと、次の表示でアプリが1回だけ決める
+      await ctx.guard(() => ctx.store.updatePlace(id, { plan: { ...(place(id).plan || {}), day, auto: false } }));
       return savePlan((plan) => dropFromManual(plan, id));
     }
   });
@@ -351,7 +376,7 @@ export function planFields(prefix, x, dates) {
   const wd = ['日', '月', '火', '水', '木', '金', '土'];
   const closed = x.closed || {};
   return `<div class="row2">
-      <div class="stack"><label for="${prefix}-day">何日目</label><select id="${prefix}-day">${opt('', x.day, '未定（おまかせ）')}${dates.map((d, i) => opt(i, x.day, d.label)).join('')}</select></div>
+      <div class="stack"><label for="${prefix}-day">何日目</label><select id="${prefix}-day">${opt('', x.auto ? null : x.day, '未定（おまかせ）')}${dates.map((d, i) => opt(i, x.auto ? null : x.day, d.label)).join('')}</select></div>
       <div class="stack"><label for="${prefix}-at">何時に行く</label><select id="${prefix}-at">${opt('', x.at, '未定（おまかせ）')}${TIMES('6:00', '23:00', 30).map((t) => opt(t, x.at, t)).join('')}</select></div>
       <div class="stack"><label for="${prefix}-stay">いる時間</label><select id="${prefix}-stay">${[30, 45, 60, 90, 120, 150, 180, 240].map((m) => opt(m, x.stay, m < 60 ? m + '分' : span(m))).join('')}</select></div>
       <div class="stack"><label for="${prefix}-until">何時までに着く</label><select id="${prefix}-until">${opt('', x.until, 'なし')}${TIMES('9:00', '23:00', 30).map((t) => opt(t, x.until, t + 'まで')).join('')}</select></div>

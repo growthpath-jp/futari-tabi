@@ -406,7 +406,10 @@ async function renderTrip(tripId, q) {
     const spf = $('#sh-plan');
     if (spf) spf.addEventListener('submit', async (e) => {
       e.preventDefault();
-      const next = readPlanFields('sp', spf, placePlan(p));
+      const old = placePlan(p);
+      const next = readPlanFields('sp', spf, old);
+      // 「未定（おまかせ）」のままなら、おまかせで決めた日をそのまま使う（勝手に動かさない）
+      if (next.day == null && old.auto) { next.day = old.day; next.auto = true; } else next.auto = false;
       await guard(() => store.updatePlace(p.id, { plan: { ...(p.plan || {}), ...next } }), '予定の条件を保存しました');
       if ((p.plan || {}).day !== next.day) {
         const plan = { ...(trip.plan || {}), manual: { ...((trip.plan || {}).manual || {}) } };

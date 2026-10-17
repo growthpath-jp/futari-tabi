@@ -271,10 +271,12 @@ export function normalizePlan(plan, nDays) {
   const starts = Array.from({ length: nDays }, (_, i) => (i === 0 ? null : (p.starts || [])[i] || '9:00'));
   return { mode: p.mode || 'train', arrive: p.arrive || null, leave: p.leave || null, nights, starts, manual: { ...(p.manual || {}) } };
 }
-// place.plan = { day, at, until, open, stay, priority:'must'|'maybe', closed:{weekdays,nth,holidayOpen} }
+// place.plan = { day, auto, at, until, open, stay, priority:'must'|'maybe', closed:{weekdays,nth,holidayOpen} }
+//   day：何日目（0から）。auto=true は「おまかせでアプリが決めた日」（「おまかせの日を組み直す」で動く）
+//   日は登録したときに1回だけ決めて保存し、そのあとは押したときだけ組み直す
 export function placePlan(p) {
   const x = (p && p.plan) || {};
-  return { day: x.day ?? null, at: x.at || null, until: x.until || null, open: x.open || null, stay: x.stay || 60, priority: x.priority === 'maybe' ? 'maybe' : 'must', closed: x.closed || null };
+  return { day: x.day ?? null, auto: !!x.auto && x.day != null, at: x.at || null, until: x.until || null, open: x.open || null, stay: x.stay || 60, priority: x.priority === 'maybe' ? 'maybe' : 'must', closed: x.closed || null };
 }
 
 // 宿を当日探す日は、仮に三宮…ではなく「その旅の場所の真ん中あたり」に置いて日割りだけ計算する
@@ -303,7 +305,8 @@ export function makeDays(dates, plan, around) {
 
 // 予定を組む。行きたい（want）の場所だけを使う
 // tm（旅行中）：{ today: 日の番号, now: 'H:MM', here: {lat,lng} | null }
-function prepare(trip, places) {
+// release=true：おまかせで決めた日（auto）をいったん外して計算し直す（組み直し・空き時間を埋める用）
+function prepare(trip, places, release = false) {
   const dates = tripDates(trip);
   if (!dates.length) return null;
   const plan = normalizePlan(trip.plan, dates.length);
@@ -312,8 +315,8 @@ function prepare(trip, places) {
   const items = wants.map((p) => {
     const x = placePlan(p);
     return {
-      ...p, id: p.id, name: p.name || '名前なしの場所', stay: x.stay, priority: x.priority,
-      day: x.day != null && x.day < dates.length ? x.day : null,
+      ...p, id: p.id, name: p.name || '名前なしの場所', stay: x.stay, priority: x.priority, auto: x.auto,
+      day: x.day != null && x.day < dates.length && !(release && x.auto) ? x.day : null,
       at: x.at ? hm(x.at) : null, until: x.until ? hm(x.until) : null, open: x.open ? hm(x.open) : null,
       closed: dates.map((d, i) => (closedOn(x.closed, d) ? i : -1)).filter((i) => i >= 0),
     };
@@ -325,11 +328,18 @@ function prepare(trip, places) {
 
 // 「空き時間を埋める」：その日に入れる場所を探す。戻り値は入れる場所の一覧（元の日つき）
 export function gapFillFor(trip, places, d) {
-  const x = prepare(trip, places);
+  const x = prepare(trip, places, true);
   if (!x) return [];
   const before = new Map(x.assign);
   fillGaps(x.days, x.items, x.assign, x.mode, d);
   return x.items.filter((it) => x.assign.get(it.id) === d && before.get(it.id) !== d).map((it) => ({ id: it.id, name: it.name, from: before.get(it.id) }));
+}
+
+// 「おまかせの日を組み直す」：おまかせで決めた場所と、まだ日のない場所の日を決め直す。戻り値 [{id, name, day, from}]
+export function reassignDays(trip, places) {
+  const x = prepare(trip, places, true);
+  if (!x) return [];
+  return x.items.filter((it) => it.day == null).map((it) => ({ id: it.id, name: it.name, day: x.assign.get(it.id), from: placePlan(it).day }));
 }
 
 export function planTrip(trip, places, tm) {

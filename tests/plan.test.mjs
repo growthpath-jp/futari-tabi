@@ -1,7 +1,7 @@
 // 予定の計算（アプリ本体と同じ planTrip を通す）。データはお試しモードの神戸旅行
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hm, fmt, travelMin, simulate, planTrip, gapFillFor, tripDates, closedOn, normalizePlan, replanFrom, bearingText } from '../js/plan.js';
+import { hm, fmt, travelMin, simulate, planTrip, gapFillFor, reassignDays, tripDates, closedOn, normalizePlan, replanFrom, bearingText } from '../js/plan.js';
 import { kobeTrip, kobePlaces, basePlan, bookedPlan, HOTEL_KOYOKAKU } from '../js/demo-kobe.js';
 
 const trip = (plan) => ({ ...kobeTrip('g'), plan: plan || basePlan() });
@@ -129,4 +129,19 @@ test('空き時間を埋める（押したとき）：日を決めていない�
 test('空き時間を埋める：日を決めた場所は動かさない', () => {
   const moves = gapFillFor(trip(bookedPlan()), places(['tottei', 'dinner'], { tottei: { day: 3 } }), 1);
   assert.ok(!moves.some((m) => m.id === 'tottei'));
+});
+test('日の組み直し：おまかせで決めた日は、宿を変えても勝手には動かない', () => {
+  const ps = places(['arima', 'tottei', 'sumaura']);
+  const r0 = planTrip(trip(), ps);
+  const saved = ps.map((p) => ({ ...p, plan: { ...p.plan, day: dayOf(r0, p.id), auto: true } }));
+  const p2 = basePlan(); p2.nights[1] = { status: 'booked', hotel: HOTEL_KOYOKAKU };
+  const r1 = planTrip(trip(p2), saved);
+  for (const p of saved) assert.equal(dayOf(r1, p.id), p.plan.day, p.id);
+});
+test('日の組み直し：押すと、おまかせの場所だけ決め直す（自分で決めた日は動かさない）', () => {
+  const ps = places(['arima', 'tottei', 'sumaura']).map((p) => ({ ...p, plan: { ...p.plan, day: 0, auto: p.id !== 'tottei' } }));
+  const p2 = basePlan(); p2.nights[1] = { status: 'booked', hotel: HOTEL_KOYOKAKU };
+  const list = reassignDays(trip(p2), ps);
+  assert.ok(!list.some((m) => m.id === 'tottei'), '自分で決めた日は対象外');
+  assert.ok([1, 2].includes(list.find((m) => m.id === 'arima').day), '有馬は旅館の日に');
 });
