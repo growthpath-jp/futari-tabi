@@ -29,7 +29,7 @@ export function travelMin(a, b, mode) {
 }
 
 // ---------- 1日の流れを計算 ----------
-// day: { start, end, startTime, endTime }  items: [{ id, lat, lng, stay, at?, until?, priority }]
+// day: { start, end, startTime, endTime }（end が null の日は最後の場所で終わり）  items: [{ id, lat, lng, stay, at?, until?, priority }]
 export function simulate(day, items, mode) {
   let t = day.startTime, pos = day.start, travel = 0, late = 0;
   const rows = [];
@@ -76,7 +76,9 @@ function respectsFixedOrder(list) {
 export function autoOrder(day, items, mode) {
   const fixed = items.filter((x) => x.at != null).sort((a, b) => a.at - b.at);
   const free = items.filter((x) => x.at == null);
-  const center = { lat: (day.start.lat + day.end.lat) / 2, lng: (day.start.lng + day.end.lng) / 2 };
+  // 宿を当日探す日は終わりの場所がない（最後の場所で1日が終わる）
+  const end = day.end || day.start;
+  const center = { lat: (day.start.lat + end.lat) / 2, lng: (day.start.lng + end.lng) / 2 };
   const byFar = (a, b) => distanceM(center, b) - distanceM(center, a);
   const must = free.filter((x) => x.priority !== 'maybe').sort(byFar);
   const maybe = free.filter((x) => x.priority === 'maybe').sort(byFar);

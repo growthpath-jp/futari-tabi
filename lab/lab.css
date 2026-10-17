@@ -86,3 +86,8 @@ details summary { cursor: pointer; font-weight: 700; font-size: 14px; min-height
 .tpair label { font-size: 12px; }
 .tpair select { width: 100%; }
 .terminal small.pwarn { color: var(--danger); font-weight: 700; }
+.terminal .tctrl { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 6px 8px; align-items: center; font-size: 13px; }
+.terminal .tctrl select, .terminal .tctrl input[type="time"] { width: auto; min-height: 38px; padding: 2px 8px; font-size: 15px; }
+.terminal .hotel-pick { grid-column: 1 / -1; }
+.terminal .nstat { width: 100%; }
+.terminal .nstat .seg { flex: 1; justify-content: center; }
