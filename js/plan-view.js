@@ -1,5 +1,5 @@
 // 旅の画面「予定」タブ：日ごとの予定（到着・出発・場所・宿・帰り）と旅行中モード
-import { hm, fmt, MODES, simulate, replanFrom, bearingText, travelMin, tripDates, normalizePlan, NIGHT_DEFAULT } from './plan.js';
+import { hm, fmt, MODES, simulate, replanFrom, gapFillFor, bearingText, travelMin, tripDates, normalizePlan, NIGHT_DEFAULT } from './plan.js';
 import { DAY_COLORS } from './map.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -88,7 +88,7 @@ export function createPlanView(ctx) {
         p.priority === 'maybe' ? '<span class="tag tag-maybe">行けたら</span>' : '',
       ].join('');
       // 予約などの前に60分以上あくときは「空き時間」として見せる
-      const gap = y && y.wait >= 60 ? `<li class="gap"><span>空き時間 ${span(y.wait)}</span><small>${fmt(y.arrive - y.wait)}〜${fmt(y.arrive)}</small></li>` : '';
+      const gap = y && y.wait >= 60 ? `<li class="gap"><span>空き時間 ${span(y.wait)}<small>${fmt(y.arrive - y.wait)}〜${fmt(y.arrive)}</small></span><button class="mini" type="button" data-act="fill" data-d="${d}">空き時間を埋める</button></li>` : '';
       return `${gap}<li class="prow" data-id="${p.id}" data-d="${d}">
         <button class="handle" type="button" aria-label="${esc(p.name)}を並べ替え（ドラッグ）"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg></button>
         <span class="num" style="background:${color}">${i + 1}</span>
@@ -250,6 +250,15 @@ export function createPlanView(ctx) {
       await setManual(d, ids);
     } else if (act === 'auto') await savePlan((plan) => { delete plan.manual[d]; });
     else if (act === 'edit') ctx.openPlace(id);
+    else if (act === 'fill') {
+      // 押したときだけ：日を決めていない場所から、この空き時間に入るものを探して、この日に決める
+      const moves = gapFillFor(trip(), ctx.getPlaces(), d);
+      if (!moves.length) return ctx.toast('この空き時間に入れられる場所はありません（日を決めていない場所から探します）');
+      // その日にもともとあった場所も、この日に決める（入れたことで別の日へ動かないように）
+      const keepIds = res.days[d].order.filter((p) => p.day == null).map((p) => p.id);
+      for (const id of [...keepIds, ...moves.map((m) => m.id)]) await ctx.guard(() => ctx.store.updatePlace(id, { plan: { ...(place(id).plan || {}), day: d } }));
+      await savePlan((plan) => moves.forEach((m) => dropFromManual(plan, m.id)), `${moves.map((m) => m.name).join('・')}を${res.days[d].label}に入れました`);
+    }
     else if (act === 'force') { await savePlace(id, { plan: { priority: 'must', day: d } }, 'この日に入れました'); await ctx.refresh(); }
     else if (act === 'done') { await ctx.guard(() => ctx.store.updatePlace(id, { status: 'visited', visited_at: new Date().toISOString() }), '「予定通り」として記録しました'); await ctx.refresh(); }
     else if (act === 'cancel') { await ctx.guard(() => ctx.store.updatePlace(id, { status: 'missed', visited_at: null }), '「行けなかった」にしました'); await ctx.refresh(); }

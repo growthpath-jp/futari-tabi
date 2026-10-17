@@ -162,17 +162,18 @@ export function rebalance(days, items, assign, pinned, mode) {
   return assign;
 }
 
-// ---------- 待ち時間を埋める ----------
+// ---------- 待ち時間を埋める（ユーザーが「空き時間を埋める」を押したときだけ） ----------
 // 予約などの前に長い待ち（60分以上）がある日へ、「日を決めていない」場所を移してみる。
 // 移すのは、減る待ち時間が増える移動時間より大きく、どちらの日も時間内に収まるときだけ。
 // 見送り候補（行けたら）も、空いた時間に入るなら入れる。
 const waitOf = (sim) => sim.rows.reduce((m, r) => m + (r.wait || 0), 0);
-export function fillGaps(days, items, assign, mode) {
+export function fillGaps(days, items, assign, mode, onlyDay = null) {
   const byDay = (d) => items.filter((it) => assign.get(it.id) === d);
   const movable = (it) => it.day == null && it.at == null;
   for (let round = 0; round < items.length; round++) {
     let best = null;
     for (let d = 0; d < days.length; d++) {
+      if (onlyDay != null && d !== onlyDay) continue;
       const cur = autoOrder(days[d], byDay(d), mode);
       const sim = simulate(days[d], cur.order, mode);
       if (waitOf(sim) < 60 || sim.over > 0) continue;
@@ -302,7 +303,7 @@ export function makeDays(dates, plan, around) {
 
 // 予定を組む。行きたい（want）の場所だけを使う
 // tm（旅行中）：{ today: 日の番号, now: 'H:MM', here: {lat,lng} | null }
-export function planTrip(trip, places, tm) {
+function prepare(trip, places) {
   const dates = tripDates(trip);
   if (!dates.length) return null;
   const plan = normalizePlan(trip.plan, dates.length);
@@ -318,7 +319,23 @@ export function planTrip(trip, places, tm) {
     };
   });
   const days = makeDays(dates, plan, middle(items));
-  const assign = fillGaps(days, items, rebalance(days, items, autoAssign(days, items, {}, mode), {}, mode), mode);
+  const assign = rebalance(days, items, autoAssign(days, items, {}, mode), {}, mode);
+  return { dates, plan, mode, items, days, assign };
+}
+
+// 「空き時間を埋める」：その日に入れる場所を探す。戻り値は入れる場所の一覧（元の日つき）
+export function gapFillFor(trip, places, d) {
+  const x = prepare(trip, places);
+  if (!x) return [];
+  const before = new Map(x.assign);
+  fillGaps(x.days, x.items, x.assign, x.mode, d);
+  return x.items.filter((it) => x.assign.get(it.id) === d && before.get(it.id) !== d).map((it) => ({ id: it.id, name: it.name, from: before.get(it.id) }));
+}
+
+export function planTrip(trip, places, tm) {
+  const x = prepare(trip, places);
+  if (!x) return null;
+  const { dates, plan, mode, items, days, assign } = x;
   const out = [];
   days.forEach((day0, d) => {
     let day = day0;

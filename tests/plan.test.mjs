@@ -1,7 +1,7 @@
 // 予定の計算（アプリ本体と同じ planTrip を通す）。データはお試しモードの神戸旅行
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { hm, fmt, travelMin, simulate, planTrip, tripDates, closedOn, normalizePlan, replanFrom, bearingText } from '../js/plan.js';
+import { hm, fmt, travelMin, simulate, planTrip, gapFillFor, tripDates, closedOn, normalizePlan, replanFrom, bearingText } from '../js/plan.js';
 import { kobeTrip, kobePlaces, basePlan, bookedPlan, HOTEL_KOYOKAKU } from '../js/demo-kobe.js';
 
 const trip = (plan) => ({ ...kobeTrip('g'), plan: plan || basePlan() });
@@ -106,15 +106,27 @@ test('日付がない旅は予定を組まない', () => {
   assert.ok(travelMin({ lat: 34.69, lng: 135.19 }, { lat: 34.79, lng: 135.24 }, 'train') < 60);
   assert.equal(simulate({ start: null, end: null, startTime: 540, endTime: 600 }, [], 'train').finish, 540);
 });
-test('待ち時間を埋める：夕食18:30の前の長い待ちに、日を決めていない場所が入る', () => {
+test('空き時間：自動では埋めない（夕食18:30の前に空き時間が残る）', () => {
   const ids = ['arima', 'tottei', 'sumaura', 'dinner', 'kitano', 'nankinmachi', 'meriken', 'harborland'];
   const r = planTrip(trip(bookedPlan()), places(ids));
-  const wait = r.days[1].sim.rows.reduce((m, x) => m + x.wait, 0);
-  assert.ok(wait < 300, '待ち ' + wait);
-  r.days.forEach((x) => { assert.equal(x.sim.over, 0, x.label); assert.ok(x.order.length > 0, x.label + 'が空にならない'); });
+  assert.ok(r.days[1].sim.rows.some((x) => x.wait >= 60));
 });
-test('待ち時間を埋める：日を決めた場所は動かさない', () => {
-  const ids = ['tottei', 'dinner'];
-  const r = planTrip(trip(bookedPlan()), places(ids, { tottei: { day: 3 } }));
-  assert.equal(dayOf(r, 'tottei'), 3);
+test('空き時間を埋める（押したとき）：日を決めていない場所を、その日に入れる候補として返す', () => {
+  const ids = ['arima', 'tottei', 'sumaura', 'dinner', 'kitano', 'nankinmachi', 'meriken', 'harborland'];
+  const ps = places(ids);
+  const moves = gapFillFor(trip(bookedPlan()), ps, 1);
+  assert.ok(moves.length > 0);
+  // 返ってきた場所を11/1に決めると、待ちが減り、どの日も時間内に収まる
+  const r0 = planTrip(trip(bookedPlan()), ps);
+  const keep = r0.days[1].order.map((p) => p.id);
+  const fixed = ps.map((p) => (moves.some((m) => m.id === p.id) || keep.includes(p.id) ? { ...p, plan: { ...p.plan, day: 1 } } : p));
+  const before = r0.days[1].sim.rows.reduce((m, x) => m + x.wait, 0);
+  const r = planTrip(trip(bookedPlan()), fixed);
+  assert.ok(r.days[1].sim.rows.reduce((m, x) => m + x.wait, 0) < before);
+  r.days.forEach((x) => assert.equal(x.sim.over, 0, x.label));
+  for (const id of keep) assert.equal(dayOf(r, id), 1, id + 'は11/1のまま');
+});
+test('空き時間を埋める：日を決めた場所は動かさない', () => {
+  const moves = gapFillFor(trip(bookedPlan()), places(['tottei', 'dinner'], { tottei: { day: 3 } }), 1);
+  assert.ok(!moves.some((m) => m.id === 'tottei'));
 });

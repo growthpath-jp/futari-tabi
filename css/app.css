@@ -229,4 +229,4 @@ code { font-size: 12px; overflow-wrap: anywhere; background: var(--paper); paddi
 .answers .mini { min-height: 40px; padding: 0 14px; font-size: 13px; }
 .fb-out { white-space: pre-wrap; font-size: 12px; background: var(--paper); padding: 10px; border-radius: 10px; margin: 0; overflow-wrap: anywhere; }
 .day-list .gap { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 8px 12px; border: 2px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 13px; font-weight: 700; }
-.day-list .gap small { font-weight: 500; font-variant-numeric: tabular-nums; }
+.day-list .gap small { display: block; font-weight: 500; font-variant-numeric: tabular-nums; }
