@@ -67,3 +67,17 @@ details summary { cursor: pointer; font-weight: 700; font-size: 14px; min-height
 .prow .edit { grid-column: 3 / 5; }
 .trip-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .trip-grid .stack { min-width: 0; }
+.task .step-no { font-size: 12px; font-weight: 700; color: var(--muted); }
+.task .do { font-size: 15px; font-weight: 700; margin: 0; }
+.task .check { margin: 0; padding: 10px 12px; border-radius: 10px; background: var(--teal-soft); color: var(--teal-soft-ink); font-size: 14px; }
+.answers { display: flex; flex-wrap: wrap; gap: 6px; }
+.answers .mini { min-height: 40px; padding: 0 14px; font-size: 13px; }
+.dayhead-times { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; font-size: 13px; }
+.dayhead-times select { width: auto; min-height: 36px; padding: 2px 8px; font-size: 14px; }
+.terminal { display: grid; grid-template-columns: 54px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 10px 12px; border-radius: 12px; border: 2px solid var(--ink); background: var(--card); }
+.terminal .kind { font-size: 12px; font-weight: 700; text-align: center; padding: 3px 0; border-radius: 6px; background: var(--ink); color: var(--paper); }
+.terminal .tname { font-weight: 700; overflow-wrap: anywhere; }
+.terminal .tname small { display: block; font-weight: 400; color: var(--muted); font-size: 12px; }
+.terminal .ttime { font-weight: 700; font-variant-numeric: tabular-nums; }
+.terminal.tbd { border-style: dashed; }
+.hotel-pick { display: flex; flex-direction: column; gap: 6px; padding: 10px; border-radius: 12px; background: var(--paper); border: 1px solid var(--line); }

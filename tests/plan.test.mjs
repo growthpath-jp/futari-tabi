@@ -1,7 +1,9 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { hm, fmt, travelMin, simulate, autoOrder, autoAssign, rebalance, replanFrom, bearingText } from '../js/plan.js';
-import { DATES, SHIN_KOBE, BASES, DEFAULT_TRIP, CANDIDATES, closedDays } from '../lab/kobe.js';
+import { DATES, SHIN_KOBE, HOTELS, CANDIDATES, closedDays } from '../lab/kobe.js';
+const BASES = { sannomiya: HOTELS[0], arima: HOTELS[1] };
+const DEFAULT_TRIP = { nights: ['sannomiya', 'sannomiya', 'sannomiya'] };
 
 function trip(nights = DEFAULT_TRIP.nights) {
   return DATES.map((d, i) => ({

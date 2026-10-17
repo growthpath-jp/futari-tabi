@@ -1,5 +1,5 @@
-// 神戸旅行テスト：場所の登録 → 日割り・順番（案D：登録時に決めた分だけ固定、残りはおまかせ）
-import { DATES, SHIN_KOBE, BASES, DEFAULT_TRIP, CANDIDATES, SCENARIOS, closedDays } from './kobe.js';
+// 神戸旅行テスト：場所の登録 → 日割り・順番（登録時に決めた分だけ固定、残りはおまかせ）
+import { DATES, SHIN_KOBE, HOTELS, HOTEL_TBD, DEFAULT_TRIP, CANDIDATES, SCENARIOS, closedDays } from './kobe.js';
 import { hm, fmt, MODES, simulate, autoOrder, autoAssign, rebalance, bestInsert, replanFrom, bearingText, travelMin, isClosed } from '../js/plan.js';
 import { extractAddress } from '../js/logic.js';
 import { geocodeAddress, searchByName } from '../js/geo.js';
@@ -9,38 +9,42 @@ const $ = (s, r = document) => r.querySelector(s);
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const DAYC = ['var(--d0)', 'var(--d1)', 'var(--d2)', 'var(--d3)'];
 const DAYHEX = ['#2B5FA6', '#C46A16', '#2E7D4F', '#8E44AD'];
-const KEY = 'futari-tabi-kobe-v1';
+const KEY = 'futari-tabi-kobe-v2';
 const TIMES = (from, to, step) => { const a = []; for (let t = hm(from); t <= hm(to); t += step) a.push(fmt(t)); return a; };
 const KOBE = { lat: 34.6913, lng: 135.1830 };
+const LAST = DATES.length - 1;
+const clone = (x) => JSON.parse(JSON.stringify(x));
 
 // ---------- 状態 ----------
 let st;
 try { st = JSON.parse(localStorage.getItem(KEY) || 'null'); } catch { st = null; }
-if (!st || !st.trip) st = { sid: SCENARIOS[0].id, places: [], trip: { ...DEFAULT_TRIP }, manual: {}, edited: {}, tm: { on: false, today: 0, now: '13:00', here: null, replan: null }, done: {}, cancel: {}, feedback: {} };
+const fresh = () => ({ sid: SCENARIOS[0].id, step: {}, answers: {}, memo: {}, places: [], trip: clone(DEFAULT_TRIP), manual: {}, edited: {}, tm: { on: false, today: 0, now: '13:00', here: null, replan: null }, done: {}, cancel: {} });
+if (!st || !st.trip || !st.trip.starts) st = fresh();
 const save = () => { try { localStorage.setItem(KEY, JSON.stringify(st)); } catch { /* 保存できなくても動かす */ } };
 const sc = () => SCENARIOS.find((s) => s.id === st.sid) || SCENARIOS[0];
 let uidN = Date.now();
 const uid = () => 'p' + (uidN++).toString(36);
+let fitted = false, hotelPick = null, draft = null;
 
 function loadScenario() {
   const s = sc();
   st.places = s.start().map((p) => ({ ...p, uid: uid(), day: p.day ?? null, at: p.at ?? null }));
   st.manual = {}; st.edited = {}; st.done = {}; st.cancel = {};
-  st.trip = { ...DEFAULT_TRIP, nights: [...DEFAULT_TRIP.nights] };
+  st.trip = clone(DEFAULT_TRIP);
+  st.step[s.id] = 0;
   st.tm = s.tripMode ? { on: true, today: s.tripMode.today, now: s.tripMode.now, here: null, replan: null } : { on: false, today: 0, now: '13:00', here: null, replan: null };
-  fitted = false;
+  fitted = false; hotelPick = null; draft = null;
 }
 
 // ---------- 計算 ----------
+const hotelOf = (i) => st.trip.hotels[i] || HOTEL_TBD;
 function makeDays() {
-  const t = st.trip;
-  const base = (i) => BASES[t.nights[i]];
   return DATES.map((d, i) => ({
     label: d.label,
-    start: i === 0 ? SHIN_KOBE : base(i - 1),
-    end: i === DATES.length - 1 ? SHIN_KOBE : base(i),
-    startTime: i === 0 ? hm(t.arrive) : hm('9:00'),
-    endTime: i === DATES.length - 1 ? hm(t.depart) - 15 : hm('21:00'),
+    start: i === 0 ? SHIN_KOBE : hotelOf(i - 1),
+    end: i === LAST ? SHIN_KOBE : hotelOf(i),
+    startTime: hm(st.trip.starts[i]),
+    endTime: hm(st.trip.ends[i]),
   }));
 }
 function items() {
@@ -50,7 +54,6 @@ function items() {
     closed: closedDays(p.closedRule), done: !!st.done[p.uid],
   }));
 }
-
 function compute() {
   const days = makeDays();
   const mode = st.trip.mode;
@@ -84,7 +87,7 @@ function compute() {
 }
 
 // ---------- 地図 ----------
-let map, layer, stationLayer, stationKey = '', fitted = false;
+let map, layer, stationLayer, stationKey = '';
 function initMap() {
   if (!L) { $('#map').innerHTML = '<div class="map-fallback">地図を読み込めませんでした</div>'; return; }
   map = L.map($('#map'), { zoomControl: false });
@@ -94,11 +97,7 @@ function initMap() {
   map.setView([KOBE.lat, KOBE.lng], 12);
   layer = L.layerGroup().addTo(map);
   stationLayer = L.layerGroup().addTo(map);
-  map.on('click', (e) => {
-    if (!st.tm.on) return;
-    st.tm.here = { lat: e.latlng.lat, lng: e.latlng.lng, name: '今いる場所' };
-    render();
-  });
+  map.on('click', (e) => { if (!st.tm.on) return; st.tm.here = { lat: e.latlng.lat, lng: e.latlng.lng, name: '今いる場所' }; render(); });
   map.on('moveend', () => { if (st.tm.on) loadStations(); });
 }
 const pin = (html, cls, color) => L.divIcon({ className: 'pin-wrap', html: `<span class="lab-pin ${cls || ''}" style="${color ? 'background:' + color : ''}">${html}</span>`, iconSize: [26, 26], iconAnchor: [13, 13] });
@@ -107,8 +106,7 @@ const anchorIcon = (text) => L.divIcon({ className: 'pin-wrap', html: `<span cla
 function drawMap(res) {
   if (!map) return;
   layer.clearLayers();
-  const pts = [];
-  const anchors = new Map();
+  const pts = [], anchors = new Map();
   res.days.forEach(({ day, d, order, skipped, remaining, simDay, doneList }) => {
     const color = DAYHEX[d % 4];
     const isToday = st.tm.on && d === st.tm.today;
@@ -123,7 +121,7 @@ function drawMap(res) {
     skipped.forEach((p) => { L.marker([p.lat, p.lng], { icon: pin('?', 'unset skip'), title: p.name + '（見送り候補）' }).addTo(layer); pts.push([p.lat, p.lng]); });
   });
   res.cancelled.forEach((p) => L.marker([p.lat, p.lng], { icon: pin('×', 'unset skip'), title: p.name + '（中止）' }).addTo(layer));
-  anchors.forEach((a) => { L.marker([a.lat, a.lng], { icon: anchorIcon(a.name.replace(/^宿（(.*)）$/, '宿:$1').replace('駅', '')), title: a.name }).addTo(layer); pts.push([a.lat, a.lng]); });
+  anchors.forEach((a) => { L.marker([a.lat, a.lng], { icon: anchorIcon(a === SHIN_KOBE ? '新神戸' : a.tbd ? '宿?' : '宿'), title: a.name }).addTo(layer); pts.push([a.lat, a.lng]); });
   if (st.tm.on && st.tm.here) {
     L.marker([st.tm.here.lat, st.tm.here.lng], { icon: L.divIcon({ className: 'pin-wrap', html: '<span class="lab-here"></span>', iconSize: [18, 18], iconAnchor: [9, 9] }), title: '今いる場所', zIndexOffset: 1000 }).addTo(layer);
     const next = res.days[st.tm.today] && res.days[st.tm.today].remaining[0];
@@ -131,7 +129,6 @@ function drawMap(res) {
   }
   if (!fitted && pts.length > 1) { map.fitBounds(L.latLngBounds(pts).pad(0.12), { maxZoom: 14 }); fitted = true; }
 }
-
 async function loadStations() {
   if (!map || map.getZoom() < 13) { stationLayer.clearLayers(); stationKey = ''; return; }
   const b = map.getBounds();
@@ -149,8 +146,17 @@ async function loadStations() {
   } catch { /* 駅が取れなくても地図はそのまま */ }
 }
 
+// ---------- 検索（場所・宿で共通） ----------
+async function findPlaces(q) {
+  const addr = extractAddress(q);
+  if (addr) {
+    const g = await geocodeAddress(addr);
+    return g ? [{ name: q, area: addr + (g.approx ? '（番地までは特定できず）' : ''), lat: g.lat, lng: g.lng }] : [];
+  }
+  return searchByName(q, KOBE);
+}
+
 // ---------- 登録フォーム ----------
-let draft = null; // { uid?, name, lat, lng, day, at, until, open, stay, priority, note, closedRule, id }
 function openForm(d) {
   draft = { day: null, at: null, until: null, open: null, stay: 60, priority: 'must', note: '', ...d };
   renderForm();
@@ -185,43 +191,29 @@ function renderForm() {
     </div>`;
   $('#f-cancel').onclick = () => { draft = null; renderForm(); };
   const del = $('#f-del');
-  if (del) del.onclick = () => { st.places = st.places.filter((p) => p.uid !== draft.uid); Object.keys(st.manual).forEach((d) => { st.manual[d] = st.manual[d].filter((x) => x !== draft.uid); }); draft = null; render(); };
+  if (del) del.onclick = () => { st.places = st.places.filter((p) => p.uid !== draft.uid); Object.keys(st.manual).forEach((d) => { st.manual[d] = st.manual[d].filter((x) => x !== draft.uid); }); draft = null; render(); renderForm(); };
 }
 $('#form').addEventListener('submit', (e) => {
   e.preventDefault();
   const v = (id) => $(id).value;
-  const p = {
-    ...draft, name: v('#f-name').trim() || '名前なしの場所',
-    day: v('#f-day') === '' ? null : Number(v('#f-day')),
-    at: v('#f-at') || null, until: v('#f-until') || null, stay: Number(v('#f-stay')),
-    priority: $('input[name="f-prio"]:checked').value,
-  };
+  const p = { ...draft, name: v('#f-name').trim() || '名前なしの場所', day: v('#f-day') === '' ? null : Number(v('#f-day')), at: v('#f-at') || null, until: v('#f-until') || null, stay: Number(v('#f-stay')), priority: $('input[name="f-prio"]:checked').value };
   if (p.uid) {
     const old = st.places.find((x) => x.uid === p.uid);
     if (old.day !== p.day) Object.keys(st.manual).forEach((d) => { st.manual[d] = st.manual[d].filter((x) => x !== p.uid); });
     Object.assign(old, p);
   } else st.places.push({ ...p, uid: uid() });
-  draft = null;
+  const wasEdit = !!p.uid;
+  draft = null; renderForm();
   $('#results').innerHTML = ''; $('#q').value = '';
   render();
-  toast(p.uid ? '保存しました' : '登録しました');
+  toast(wasEdit ? '保存しました' : '登録しました');
 });
-
 async function doSearch() {
-  const q = $('#q').value.trim();
-  const box = $('#results');
+  const q = $('#q').value.trim(), box = $('#results');
   if (!q) return;
   box.innerHTML = '<p class="sub">探しています…</p>';
   try {
-    const addr = extractAddress(q);
-    if (addr) {
-      const g = await geocodeAddress(addr);
-      if (!g) { box.innerHTML = '<p class="sub">見つかりませんでした</p>'; return; }
-      box.innerHTML = '';
-      openForm({ name: '', lat: g.lat, lng: g.lng, note: addr + (g.approx ? '（番地までは特定できず、近くの位置）' : '') });
-      return;
-    }
-    const list = await searchByName(q, KOBE);
+    const list = await findPlaces(q);
     if (!list.length) { box.innerHTML = '<p class="sub">見つかりませんでした。住所で探すか、候補から選んでください</p>'; return; }
     box.innerHTML = `<div class="results">${list.map((c, i) => `<button class="item" type="button" data-i="${i}"><span class="item-main"><b>${esc(c.name)}</b><small>${esc(c.area)}</small></span></button>`).join('')}</div>`;
     box.querySelectorAll('[data-i]').forEach((b) => b.addEventListener('click', () => { const c = list[Number(b.dataset.i)]; box.innerHTML = ''; openForm({ name: c.name, lat: c.lat, lng: c.lng }); }));
@@ -230,22 +222,33 @@ async function doSearch() {
 $('#search').addEventListener('click', doSearch);
 $('#q').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); doSearch(); } });
 
-// ---------- 画面 ----------
-function renderTop() {
+// ---------- シナリオ（1ステップずつ） ----------
+function renderTask() {
   const s = sc();
   $('#sc').innerHTML = SCENARIOS.map((x) => `<option value="${x.id}" ${x.id === st.sid ? 'selected' : ''}>${esc(x.title)}</option>`).join('');
-  $('#guide-body').innerHTML = `<p class="guide-goal"><b>確かめること：</b>${esc(s.goal)}</p><ol class="guide-steps">${s.steps.map((t) => `<li>${esc(t)}</li>`).join('')}</ol>`;
-  const t = st.trip;
-  const sel = (id, cur, opts) => `<select id="${id}">${opts.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>`;
-  const baseOpts = Object.entries(BASES).map(([k, b]) => [k, b.name.replace(/^宿（(.*)）$/, '$1')]);
-  $('#trip-body').innerHTML = `<div class="trip-grid">
-    <div class="stack"><label for="t-arrive">10/31 新神戸に着く</label>${sel('t-arrive', t.arrive, TIMES('10:00', '15:00', 15).map((x) => [x, x]))}</div>
-    <div class="stack"><label for="t-depart">11/3 新神戸を出る</label>${sel('t-depart', t.depart, TIMES('13:00', '20:00', 30).map((x) => [x, x]))}</div>
-    ${[0, 1, 2].map((i) => `<div class="stack"><label for="t-n${i}">${i + 1}泊目（${DATES[i].label}）の宿</label>${sel('t-n' + i, t.nights[i], baseOpts)}</div>`).join('')}
-    <div class="stack"><label for="t-mode">移動手段</label>${sel('t-mode', t.mode, Object.entries(MODES).map(([k, m]) => [k, m.label]))}</div>
-  </div>`;
+  const i = st.step[s.id] || 0;
+  const ans = (st.answers[s.id] || {});
+  if (i >= s.steps.length) {
+    const nextS = SCENARIOS[SCENARIOS.indexOf(s) + 1];
+    $('#task').innerHTML = `<p class="do">このシナリオは終わりです。ありがとうございます。</p>
+      <div class="row-inline wrap">${nextS ? `<button class="btn primary small" type="button" data-next-sc="${nextS.id}">次のシナリオへ</button>` : '<span class="hint">全シナリオ終わりです。下の「答えと感想をコピー」からチャットに貼り付けてください。</span>'}
+      <button class="btn small" type="button" data-step="${s.steps.length - 1}">前のステップに戻る</button></div>`;
+    return;
+  }
+  const step = s.steps[i];
+  $('#task').innerHTML = `<span class="step-no">ステップ ${i + 1} / ${s.steps.length}</span>
+    <p class="do">やること：${esc(step.do)}</p>
+    <p class="check">確かめたいこと：${esc(step.check)}</p>
+    <div class="answers" role="group" aria-label="答え">${['はい', 'どちらとも', 'いいえ'].map((a) => `<button class="mini ${ans[i] === a ? 'on' : ''}" type="button" data-answer="${a}">${a}</button>`).join('')}</div>
+    <div class="row-inline wrap">${i > 0 ? `<button class="btn small" type="button" data-step="${i - 1}">前へ</button>` : ''}<button class="btn small" type="button" id="reset-sc">このシナリオを最初からやり直す</button></div>`;
+}
+
+// ---------- 画面 ----------
+function renderTop() {
+  renderTask();
   const added = new Set(st.places.map((p) => p.id));
   $('#cands').innerHTML = CANDIDATES.map((c) => `<button class="mini ${added.has(c.id) ? 'added' : ''}" type="button" data-cand="${c.id}">${added.has(c.id) ? '✓ ' : '＋ '}${esc(c.name)}${c.priority === 'maybe' ? '（行けたら）' : ''}</button>`).join('');
+  $('#modes').innerHTML = Object.entries(MODES).map(([k, m]) => `<label class="seg"><input type="radio" name="mode" value="${k}" ${k === st.trip.mode ? 'checked' : ''}>${m.label}</label>`).join('');
   const tb = $('#trip-toggle');
   tb.setAttribute('aria-pressed', String(st.tm.on));
   tb.textContent = st.tm.on ? '旅行中モード：オン' : '旅行中モード：オフ';
@@ -255,10 +258,17 @@ function renderTop() {
   const hint = $('#map-hint');
   hint.hidden = !(st.tm.on && !st.tm.here);
   hint.textContent = '地図をタップして「今いる場所」を決めてください';
-  const fb = st.feedback[st.sid] || {};
-  $('#fb-fit').innerHTML = ['◎ しっくり', '○ だいたい', '△ いまいち', '× 違う'].map((k) => `<label class="check card"><input type="radio" name="fb-fit" value="${k}" ${fb.fit === k ? 'checked' : ''}>${k}</label>`).join('');
-  $('#fb-want').innerHTML = ['何日目', '何時に行くか', 'いる時間', '絶対／行けたら', '何も決めたくない（おまかせでいい）'].map((k) => `<label class="check"><input type="checkbox" name="fb-want" value="${k}" ${(fb.want || []).includes(k) ? 'checked' : ''}>${k}</label>`).join('');
-  $('#fb-memo').value = fb.memo || '';
+  const memo = $('#fb-memo');
+  if (document.activeElement !== memo) memo.value = st.memo[st.sid] || '';
+}
+
+function hotelPicker(i) {
+  return `<div class="hotel-pick" data-hotel-day="${i}">
+    <span class="label">${DATES[i].label}の夜に泊まる宿</span>
+    <div class="cand-chips">${HOTELS.map((h, k) => `<button class="mini" type="button" data-hotel="${k}">${esc(h.name)}</button>`).join('')}<button class="mini" type="button" data-hotel="tbd">未定にする</button></div>
+    <div class="row-inline"><label class="sr-only" for="hq-${i}">宿の名前・住所</label><input id="hq-${i}" placeholder="宿の名前・住所で探す"><button class="btn small" type="button" data-hotel-search="${i}">探す</button></div>
+    <div class="results" id="hr-${i}"></div>
+    <button class="btn small" type="button" data-hotel-close>閉じる</button></div>`;
 }
 
 function render() {
@@ -266,12 +276,15 @@ function render() {
   save();
   renderTop();
   const mode = st.trip.mode;
+  const timeSel = (id, cur, from, to) => `<select id="${id}">${TIMES(from, to, 15).map((t) => `<option ${t === cur ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
   $('#days').innerHTML = res.days.map(({ day, d, order, skipped, sim, doneList, remaining, simDay }) => {
     const isToday = st.tm.on && d === st.tm.today;
     const list = isToday ? [...doneList, ...remaining] : order;
     const rows = new Map(sim.rows.map((x) => [x.id, x]));
     const start = isToday && st.tm.here ? simDay.start : day.start;
     const startT = isToday && st.tm.here ? simDay.startTime : day.startTime;
+    const startLabel = d === 0 ? '新神戸に着く時刻' : '出発の時刻';
+    const endLabel = d === LAST ? '新神戸に着く（新幹線の15分前）' : '宿に着く時刻（これより前に）';
     const body = list.map((p) => {
       const isDone = doneList.includes(p);
       const x = rows.get(p.id);
@@ -294,20 +307,26 @@ function render() {
         <div class="updown"><button type="button" data-act="up" aria-label="上へ" ${pos === 0 || isDone ? 'disabled' : ''}>↑</button><button type="button" data-act="down" aria-label="下へ" ${pos === list.length - 1 || isDone ? 'disabled' : ''}>↓</button></div>
         <div class="pctrl">
           <label class="sr-only" for="mv-${p.id}">何日目</label>
-          <select id="mv-${p.id}" data-act="move">${`<option value="" ${p.day == null ? 'selected' : ''}>おまかせ（${esc(day.label)}）</option>`}${DATES.map((dd, i) => `<option value="${i}" ${p.day === i ? 'selected' : ''}>${dd.label}に決める</option>`).join('')}</select>
+          <select id="mv-${p.id}" data-act="move"><option value="" ${p.day == null ? 'selected' : ''}>日はおまかせ</option>${DATES.map((dd, i) => `<option value="${i}" ${p.day === i ? 'selected' : ''}>${dd.label}に決める</option>`).join('')}</select>
           <button class="mini" type="button" data-act="edit">変更</button>
-          ${st.tm.on && isToday ? `<button class="mini ${isDone ? 'on' : ''}" type="button" data-act="done">済</button><button class="mini" type="button" data-act="cancel">中止</button>` : ''}
+          ${isToday ? `<button class="mini ${isDone ? 'on' : ''}" type="button" data-act="done">済</button><button class="mini" type="button" data-act="cancel">中止</button>` : ''}
         </div></li>`;
     }).join('');
     const skip = skipped.length ? `<div class="stack"><span class="label">見送り候補（時間に収まらない「行けたら」）</span>${skipped.map((p) => `<div class="prow" data-id="${p.id}" data-d="${d}"><span></span><span class="num lab-pin unset">?</span><div class="pmain"><b>${esc(p.name)}</b><span class="pmeta">${p.stay}分</span></div><span></span><div class="pctrl"><button class="mini" type="button" data-act="force">この日に入れる</button><button class="mini" type="button" data-act="edit">変更</button></div></div>`).join('')}</div>` : '';
+    const endIsHotel = d !== LAST;
     return `<section class="day" aria-label="${esc(day.label)}">
       <div class="day-head"><h2><span class="day-dot" style="background:${DAYC[d % 4]}"></span>${esc(day.label)}${isToday ? '（今日）' : ''}</h2>
-        <span class="day-sum">移動 合計${Math.round(sim.travel)}分 ・ ${fmt(sim.finish)}に${esc(day.end.name)}</span>
-        ${sim.over > 0 ? `<span class="day-warn">予定より${Math.round(sim.over)}分オーバー</span>` : ''}
+        <span class="day-sum">移動 合計${Math.round(sim.travel)}分</span>
+        ${sim.over > 0 ? `<span class="day-warn">時間が${Math.round(sim.over)}分足りません</span>` : ''}
         ${st.edited[d] ? `<button class="mini" type="button" data-act="auto" data-d="${d}">おまかせの順番に戻す</button>` : ''}</div>
-      <div class="endpoint"><span class="sq"></span>出発 <b>${esc(start.name)}</b> ${fmt(startT)}</div>
+      <div class="dayhead-times"><label for="ts-${d}">${startLabel}</label>${timeSel('ts-' + d, st.trip.starts[d], '6:00', '15:00')}
+        <label for="te-${d}">${endLabel}</label>${timeSel('te-' + d, st.trip.ends[d], '12:00', '23:00')}</div>
+      <div class="terminal ${start.tbd ? 'tbd' : ''}"><span class="kind">出発</span><span class="tname">${esc(start.name)}${d > 0 && !(isToday && st.tm.here) ? '<small>前の夜の宿から</small>' : ''}</span><span class="ttime">${fmt(startT)}</span></div>
       <ul class="day-list" data-d="${d}">${body || '<li class="empty">この日の場所はまだありません</li>'}</ul>
-      <div class="endpoint"><span class="sq"></span>到着 <b>${esc(day.end.name)}</b> ${order.length ? fmt(sim.finish) : ''}（${d === DATES.length - 1 ? '新幹線に乗る15分前 ' : '目安 '}${fmt(day.endTime)}まで）</div>
+      <div class="terminal ${day.end.tbd ? 'tbd' : ''}"><span class="kind">${endIsHotel ? '宿' : '帰り'}</span>
+        <span class="tname">${esc(day.end.name)}<small>${endIsHotel ? `${fmt(day.endTime)}までに着く予定` : '17:00の新幹線'}</small></span>
+        <span class="ttime">${fmt(sim.finish)}着</span></div>
+      ${endIsHotel ? (hotelPick === d ? hotelPicker(d) : `<button class="btn small" type="button" data-hotel-open="${d}">${day.end.tbd ? '宿を選ぶ' : '宿を変える'}</button>`) : ''}
       ${skip}</section>`;
   }).join('');
 
@@ -340,11 +359,37 @@ function setOrder(d, ids) {
   st.manual[d] = ids; st.edited[d] = true;
 }
 const place = (id) => st.places.find((p) => p.uid === id);
+function setHotel(i, h) { st.trip.hotels[i] = h; st.manual = {}; st.edited = {}; hotelPick = null; fitted = false; render(); toast(h ? `${DATES[i].label}の宿：${h.name}` : '宿を未定にしました'); }
 
-document.addEventListener('click', (e) => {
-  const cand = e.target.closest('[data-cand]');
+document.addEventListener('click', async (e) => {
+  const t = e.target;
+  const cand = t.closest('[data-cand]');
   if (cand) { const c = CANDIDATES.find((x) => x.id === cand.dataset.cand); openForm({ ...c, uid: undefined }); return; }
-  const b = e.target.closest('[data-act]');
+  const ansB = t.closest('[data-answer]');
+  if (ansB) { const s = sc(); const i = st.step[s.id] || 0; st.answers[s.id] = { ...(st.answers[s.id] || {}), [i]: ansB.dataset.answer }; st.step[s.id] = i + 1; save(); renderTask(); return; }
+  const stepB = t.closest('[data-step]');
+  if (stepB) { st.step[sc().id] = Number(stepB.dataset.step); save(); renderTask(); return; }
+  const nsc = t.closest('[data-next-sc]');
+  if (nsc) { st.sid = nsc.dataset.nextSc; loadScenario(); renderForm(); render(); window.scrollTo({ top: 0, behavior: 'smooth' }); return; }
+  if (t.id === 'reset-sc') { loadScenario(); renderForm(); render(); toast('最初の状態に戻しました'); return; }
+  const ho = t.closest('[data-hotel-open]');
+  if (ho) { hotelPick = Number(ho.dataset.hotelOpen); render(); return; }
+  if (t.closest('[data-hotel-close]')) { hotelPick = null; render(); return; }
+  const hb = t.closest('[data-hotel]');
+  if (hb) { const i = Number(hb.closest('[data-hotel-day]').dataset.hotelDay); setHotel(i, hb.dataset.hotel === 'tbd' ? null : { ...HOTELS[Number(hb.dataset.hotel)] }); return; }
+  const hs = t.closest('[data-hotel-search]');
+  if (hs) {
+    const i = Number(hs.dataset.hotelSearch), q = $('#hq-' + i).value.trim(), box = $('#hr-' + i);
+    if (!q) return;
+    box.innerHTML = '<p class="sub">探しています…</p>';
+    try {
+      const list = await findPlaces(q);
+      box.innerHTML = list.length ? list.map((c, k) => `<button class="item" type="button" data-hotel-hit="${k}"><span class="item-main"><b>${esc(c.name)}</b><small>${esc(c.area)}</small></span></button>`).join('') : '<p class="sub">見つかりませんでした</p>';
+      box.querySelectorAll('[data-hotel-hit]').forEach((b) => b.addEventListener('click', () => { const c = list[Number(b.dataset.hotelHit)]; setHotel(i, { name: c.name, lat: c.lat, lng: c.lng }); }));
+    } catch (err) { box.innerHTML = `<p class="error">${esc(err.message)}</p>`; }
+    return;
+  }
+  const b = t.closest('[data-act]');
   if (!b || b.tagName === 'SELECT') return;
   const row = b.closest('[data-id]');
   const id = row && row.dataset.id;
@@ -366,25 +411,20 @@ document.addEventListener('click', (e) => {
 
 document.addEventListener('change', (e) => {
   const t = e.target;
-  if (t.id === 'sc') { st.sid = t.value; loadScenario(); draft = null; renderForm(); render(); toast('シナリオの最初の状態にしました'); return; }
-  if (t.id === 't-arrive') st.trip.arrive = t.value;
-  else if (t.id === 't-depart') st.trip.depart = t.value;
-  else if (/^t-n\d$/.test(t.id)) { st.trip.nights[Number(t.id.slice(3))] = t.value; st.manual = {}; st.edited = {}; }
-  else if (t.id === 't-mode') st.trip.mode = t.value;
+  if (t.id === 'sc') { st.sid = t.value; loadScenario(); renderForm(); render(); toast('シナリオの最初の状態にしました'); return; }
+  if (t.name === 'mode') st.trip.mode = t.value;
+  else if (/^ts-\d$/.test(t.id)) st.trip.starts[Number(t.id.slice(3))] = t.value;
+  else if (/^te-\d$/.test(t.id)) st.trip.ends[Number(t.id.slice(3))] = t.value;
   else if (t.id === 'today') { st.tm.today = Number(t.value); st.tm.replan = null; }
   else if (t.id === 'now') st.tm.now = t.value;
   else if (t.dataset && t.dataset.act === 'move') {
-    const row = t.closest('[data-id]');
-    const p = place(row.dataset.id);
+    const p = place(t.closest('[data-id]').dataset.id);
     p.day = t.value === '' ? null : Number(t.value);
     Object.keys(st.manual).forEach((d) => { st.manual[d] = st.manual[d].filter((x) => x !== p.uid); });
-  } else if (t.name === 'fb-fit') { st.feedback[st.sid] = { ...(st.feedback[st.sid] || {}), fit: t.value }; save(); return; }
-  else if (t.name === 'fb-want') { st.feedback[st.sid] = { ...(st.feedback[st.sid] || {}), want: [...document.querySelectorAll('input[name="fb-want"]:checked')].map((x) => x.value) }; save(); return; }
-  else return;
+  } else return;
   render();
 });
-$('#fb-memo').addEventListener('input', (e) => { st.feedback[st.sid] = { ...(st.feedback[st.sid] || {}), memo: e.target.value }; save(); });
-$('#load').addEventListener('click', () => { loadScenario(); render(); toast('シナリオの最初の状態にしました'); });
+$('#fb-memo').addEventListener('input', (e) => { st.memo[st.sid] = e.target.value; save(); });
 $('#trip-toggle').addEventListener('click', () => { st.tm.on = !st.tm.on; render(); });
 $('#gps').addEventListener('click', () => {
   if (!navigator.geolocation) return;
@@ -402,10 +442,12 @@ document.addEventListener('click', (e) => {
   render();
 });
 $('#fb-copy').addEventListener('click', async () => {
-  const lines = ['【神戸旅行テスト 感想】'];
+  const lines = ['【神戸旅行テスト 答えと感想】'];
   for (const s of SCENARIOS) {
-    const f = st.feedback[s.id] || {};
-    lines.push('', s.title, `しっくり：${f.fit || '未回答'}`, `登録時に決めたかったこと：${(f.want || []).join('、') || '未回答'}`, `感じたこと：${f.memo || 'なし'}`);
+    const a = st.answers[s.id] || {};
+    lines.push('', s.title);
+    s.steps.forEach((step, i) => lines.push(`・${step.check} → ${a[i] || '未回答'}`));
+    lines.push(`感じたこと：${st.memo[s.id] || 'なし'}`);
   }
   const text = lines.join('\n');
   const out = $('#fb-out'); out.textContent = text; out.hidden = false;

@@ -14,34 +14,30 @@
 <body>
   <header class="bar">
     <a class="icon-btn" href="../" aria-label="アプリに戻る"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></a>
-    <div class="bar-title"><h1>神戸旅行テスト</h1><span class="sub">10/31(土)〜11/3(火・祝)　場所の登録から試すページ</span></div>
+    <div class="bar-title"><h1>神戸旅行テスト</h1><span class="sub">10/31(土)〜11/3(火・祝)</span></div>
   </header>
 
   <main class="page stack-lg">
-    <section class="card stack">
+    <section class="card stack task" aria-labelledby="task-h">
       <label for="sc">シナリオ</label>
       <select id="sc"></select>
-      <details id="guide" open>
-        <summary>確かめること・やってみること</summary>
-        <div class="stack" id="guide-body"></div>
-      </details>
-      <button class="btn small" type="button" id="load">このシナリオの最初の状態にする</button>
+      <div class="stack" id="task" aria-live="polite"></div>
     </section>
-
-    <details class="card" id="trip-set">
-      <summary>旅の設定（新幹線・宿・移動手段）</summary>
-      <div class="stack" id="trip-body"></div>
-    </details>
 
     <section class="card stack" aria-labelledby="reg-h">
       <h2 id="reg-h">場所を登録</h2>
-      <label class="sr-only" for="q">場所の名前または住所</label>
-      <div class="row-inline"><input id="q" placeholder="名前または住所（例：南京町）"><button class="btn" type="button" id="search">探す</button></div>
-      <div id="results" aria-live="polite"></div>
       <span class="label">候補から選ぶ</span>
       <div class="cand-chips" id="cands"></div>
+      <label class="label" for="q">または名前・住所で探す</label>
+      <div class="row-inline"><input id="q" placeholder="例：南京町、神戸ポートタワー"><button class="btn" type="button" id="search">探す</button></div>
+      <div id="results" aria-live="polite"></div>
       <form class="stack reg-form" id="form" hidden></form>
     </section>
+
+    <div class="row-inline wrap">
+      <span class="label">移動手段</span>
+      <div class="segs small" role="radiogroup" aria-label="移動手段" id="modes"></div>
+    </div>
   </main>
 
   <div class="trip-bar">
@@ -60,14 +56,12 @@
     <section class="stack" id="extra"></section>
 
     <section class="card stack" id="feedback">
-      <h2>このシナリオの感想</h2>
-      <fieldset class="stack"><legend>しっくりきた？</legend><div class="grid2" id="fb-fit"></div></fieldset>
-      <fieldset class="stack"><legend>登録するときに決めたかったこと（いくつでも）</legend><div class="stack" id="fb-want"></div></fieldset>
-      <label for="fb-memo">感じたこと（ひとことでOK）</label>
-      <textarea id="fb-memo" rows="3" placeholder="例：有馬は登録の時に日を決めたい。ほかはおまかせでいい"></textarea>
-      <button class="btn primary" type="button" id="fb-copy">全シナリオの感想をコピー</button>
+      <h2>感想をClaudeに送る</h2>
+      <label for="fb-memo">このシナリオで感じたこと（ひとことでOK・なくてもOK）</label>
+      <textarea id="fb-memo" rows="3" placeholder="例：宿は登録の最初に決めたい"></textarea>
+      <button class="btn primary" type="button" id="fb-copy">全シナリオの答えと感想をコピー</button>
       <pre class="fb-out copy-target" id="fb-out" hidden></pre>
-      <p class="hint">コピーした内容を、そのままClaudeとのチャットに貼り付けてください。</p>
+      <p class="hint">コピーした内容を、そのままチャットに貼り付けてください。</p>
     </section>
     <p class="hint">位置はおおよそです。営業時間は調べた時点の情報なので、実際の旅行前には公式サイトで確認してください。</p>
   </main>
