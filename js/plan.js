@@ -162,6 +162,48 @@ export function rebalance(days, items, assign, pinned, mode) {
   return assign;
 }
 
+// ---------- 待ち時間を埋める ----------
+// 予約などの前に長い待ち（60分以上）がある日へ、「日を決めていない」場所を移してみる。
+// 移すのは、減る待ち時間が増える移動時間より大きく、どちらの日も時間内に収まるときだけ。
+// 見送り候補（行けたら）も、空いた時間に入るなら入れる。
+const waitOf = (sim) => sim.rows.reduce((m, r) => m + (r.wait || 0), 0);
+export function fillGaps(days, items, assign, mode) {
+  const byDay = (d) => items.filter((it) => assign.get(it.id) === d);
+  const movable = (it) => it.day == null && it.at == null;
+  for (let round = 0; round < items.length; round++) {
+    let best = null;
+    for (let d = 0; d < days.length; d++) {
+      const cur = autoOrder(days[d], byDay(d), mode);
+      const sim = simulate(days[d], cur.order, mode);
+      if (waitOf(sim) < 60 || sim.over > 0) continue;
+      // 候補の順：この日の見送り候補 → ほかの日の「行けたら」 → ほかの日の「絶対」（その日が空になるものは動かさない）
+      const others = items.filter((it) => assign.get(it.id) !== d && movable(it) && !isClosed(it, d));
+      const tiers = [cur.skipped, others.filter((it) => it.priority === 'maybe'),
+        others.filter((it) => it.priority !== 'maybe' && byDay(assign.get(it.id)).length > 1)];
+      const cands = tiers.find((t) => t.some((it) => { const x = bestInsert(days[d], cur.order, it, mode); return x.sim.over <= 0 && x.sim.late <= sim.late; })) || [];
+      for (const it of cands) {
+        const b = bestInsert(days[d], cur.order, it, mode);
+        if (b.sim.over > 0 || b.sim.late > sim.late) continue;
+        const gain = waitOf(sim) - waitOf(b.sim);
+        let extra = b.sim.travel - sim.travel;
+        const from = assign.get(it.id);
+        if (from !== d) {
+          // 元の日から抜いたときの変化（元の日の移動が減るぶんは得）
+          const before = simulate(days[from], autoOrder(days[from], byDay(from), mode).order, mode);
+          const after = simulate(days[from], autoOrder(days[from], byDay(from).filter((x) => x !== it), mode).order, mode);
+          extra += after.travel - before.travel;
+          if (it.priority !== 'maybe' && after.over > before.over) continue;
+        }
+        const score = gain - extra;
+        if (gain >= 30 && score > 0 && (!best || score > best.score)) best = { it, d, score };
+      }
+    }
+    if (!best) break;
+    assign.set(best.it.id, best.d);
+  }
+  return assign;
+}
+
 // ---------- 旅行当日：今いる場所から並べ直す ----------
 export function replanFrom(day, here, nowMin, remaining, mode) {
   const d = { ...day, start: here, startTime: nowMin };
@@ -276,7 +318,7 @@ export function planTrip(trip, places, tm) {
     };
   });
   const days = makeDays(dates, plan, middle(items));
-  const assign = rebalance(days, items, autoAssign(days, items, {}, mode), {}, mode);
+  const assign = fillGaps(days, items, rebalance(days, items, autoAssign(days, items, {}, mode), {}, mode), mode);
   const out = [];
   days.forEach((day0, d) => {
     let day = day0;

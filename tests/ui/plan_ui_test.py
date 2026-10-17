@@ -45,7 +45,7 @@ def register(pg, q, day_idx=None, at=None, stay=None, maybe=False):
     if stay: pg.select_option('#cp-stay', str(stay))
     if maybe: pg.locator('label.seg:has(input[name="cp-prio"][value="maybe"])').click()
     pg.click('#cf-ok'); wait(pg, 300)
-def answer(pg, a='なった'): pg.locator(f'[data-gd-answer="{a}"]').click(); wait(pg, 100)
+def answer(pg, a='迷わずできた'): pg.locator(f'[data-gd-answer="{a}"]').click(); wait(pg, 100)
 def scenario(pg, sid): pg.select_option('#gd-sc', sid); wait(pg, 600)
 def mins(text):
     m = re.search(r'(\d+):(\d\d)ごろ', text); return int(m.group(1)) * 60 + int(m.group(2)) if m else None
@@ -76,6 +76,10 @@ with sync_playwright() as p:
     check('1 何日目を11/2に変える → 11/2に移り「日を決めた」', dayOf(pg, 'TOTTEI') == 2 and '日を決めた' in pg.locator('.prow', has_text='TOTTEI').inner_text())
     answer(pg)
     check('1 最後まで答えると「次のシナリオへ」', pg.locator('[data-gd-next]').count() == 1)
+    pg.locator('[data-gd-step="2"]').click(); wait(pg, 100)
+    pg.locator('[data-gd-answer="少し迷った"]').click(); wait(pg, 100)
+    check('1 「少し迷った」→「どこで迷った？」を書ける', pg.locator('#gd-note').count() == 1)
+    pg.fill('#gd-note', '何日目の場所が分かりにくい'); pg.click('#gd-note-next'); wait(pg, 100)
 
     # ② 宿
     pg.locator('[data-gd-next]').click(); wait(pg, 600)
@@ -126,6 +130,7 @@ with sync_playwright() as p:
     scenario(pg, 'g5')
     pg.click('#pv-tm'); wait(pg)
     pg.select_option('#pv-today', '1'); wait(pg, 150); pg.select_option('#pv-now', '14:00'); wait(pg, 150)
+    check('5 長い空き時間は「空き時間」として見える（待ち◯分ではなく）', '待ち2' not in pg.locator('#plan-area').inner_text() or pg.locator('.day-list .gap').count() > 0)
     check('5 旅行中モード：地図をタップするよう案内', '地図をタップして' in pg.locator('.tm-box').inner_text())
     pg.evaluate('window.__tapMap(34.6946,135.1955)'); wait(pg, 300)
     tb = pg.locator('.tm-box').inner_text()
@@ -148,7 +153,8 @@ with sync_playwright() as p:
     # 感想
     pg.fill('#gd-memo', '宿は先に決めたい'); pg.click('#gd-copy'); wait(pg, 150)
     out = pg.locator('#gd-out').inner_text()
-    check('6 答えと感想をまとめてコピーできる', '行きたい場所を、日を決めずに登録したい → なった' in out and '宿は先に決めたい' in out, out[:200])
+    check('6 答えと感想をまとめてコピーできる', '行きたい場所を、日を決めずに登録したい → 迷わずできた' in out and '宿は先に決めたい' in out, out[:200])
+    check('6 迷った場所のひとことも入る', '日を自分で決めたい → 少し迷った（何日目の場所が分かりにくい）' in out, out[:400])
     pg.reload(); pg.wait_for_selector('#guide'); wait(pg, 400)
     check('6 再読み込みしても続きから', pg.locator('#gd-sc').input_value() == 'g5')
     check('7 横にはみ出さない', not pg.evaluate('document.documentElement.scrollWidth > innerWidth + 1'))

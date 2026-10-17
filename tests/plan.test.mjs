@@ -106,3 +106,15 @@ test('日付がない旅は予定を組まない', () => {
   assert.ok(travelMin({ lat: 34.69, lng: 135.19 }, { lat: 34.79, lng: 135.24 }, 'train') < 60);
   assert.equal(simulate({ start: null, end: null, startTime: 540, endTime: 600 }, [], 'train').finish, 540);
 });
+test('待ち時間を埋める：夕食18:30の前の長い待ちに、日を決めていない場所が入る', () => {
+  const ids = ['arima', 'tottei', 'sumaura', 'dinner', 'kitano', 'nankinmachi', 'meriken', 'harborland'];
+  const r = planTrip(trip(bookedPlan()), places(ids));
+  const wait = r.days[1].sim.rows.reduce((m, x) => m + x.wait, 0);
+  assert.ok(wait < 300, '待ち ' + wait);
+  r.days.forEach((x) => { assert.equal(x.sim.over, 0, x.label); assert.ok(x.order.length > 0, x.label + 'が空にならない'); });
+});
+test('待ち時間を埋める：日を決めた場所は動かさない', () => {
+  const ids = ['tottei', 'dinner'];
+  const r = planTrip(trip(bookedPlan()), places(ids, { tottei: { day: 3 } }));
+  assert.equal(dayOf(r, 'tottei'), 3);
+});

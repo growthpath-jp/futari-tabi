@@ -87,11 +87,13 @@ export function createPlanView(ctx) {
         p.until != null ? `<span class="tag tag-time">〜${fmt(p.until)}</span>` : '',
         p.priority === 'maybe' ? '<span class="tag tag-maybe">行けたら</span>' : '',
       ].join('');
-      return `<li class="prow" data-id="${p.id}" data-d="${d}">
+      // 予約などの前に60分以上あくときは「空き時間」として見せる
+      const gap = y && y.wait >= 60 ? `<li class="gap"><span>空き時間 ${span(y.wait)}</span><small>${fmt(y.arrive - y.wait)}〜${fmt(y.arrive)}</small></li>` : '';
+      return `${gap}<li class="prow" data-id="${p.id}" data-d="${d}">
         <button class="handle" type="button" aria-label="${esc(p.name)}を並べ替え（ドラッグ）"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg></button>
         <span class="num" style="background:${color}">${i + 1}</span>
         <div class="pmain"><b>${esc(p.name)}</b>
-          <span class="pmeta">${y ? `${fmt(y.arrive)}着 ・ ${span(p.stay)} ・ 移動${Math.round(y.move)}分${y.wait > 1 ? ` ・ 待ち${Math.round(y.wait)}分` : ''}` : ''}</span>
+          <span class="pmeta">${y ? `${fmt(y.arrive)}着 ・ ${span(p.stay)} ・ 移動${Math.round(y.move)}分${y.wait > 1 && y.wait < 60 ? ` ・ 待ち${Math.round(y.wait)}分` : ''}` : ''}</span>
           ${warn ? `<span class="pwarn">${esc(warn)}</span>` : ''}
           ${tags ? `<div class="tags">${tags}</div>` : ''}</div>
         <div class="updown"><button type="button" data-act="up" aria-label="上へ" ${i === 0 ? 'disabled' : ''}>↑</button><button type="button" data-act="down" aria-label="下へ" ${i === x.order.length - 1 ? 'disabled' : ''}>↓</button></div>

@@ -1,8 +1,9 @@
-// お試しモードの「試し方ガイド」：やりたいこと → こう操作する → こうなる を1ステップずつ表示
+// お試しモードの「試し方ガイド」：やりたいこと → こう操作する → こうなる を1ステップずつ表示し、
+// 操作のしやすさ（迷わずできたか・どこで迷ったか）を聞く。動いたかどうかは自動テストで確認する
 // 画面・計算は本番と同じ。ガイドは説明を出すだけで、アプリの動きは変えない
 import { GUIDE, KOBE_TRIP_ID } from './demo-kobe.js';
 
-const KEY = 'futari-tabi-guide-v1';
+const KEY = 'futari-tabi-guide-v2';
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || 'null') || {}; } catch { return {}; } };
 const keep = (g) => { try { localStorage.setItem(KEY, JSON.stringify(g)); } catch { /* 保存できなくても動かす */ } };
@@ -20,7 +21,8 @@ export async function applyScenario(store, tripId, sc) {
 
 // ctx: { el, store, tripId, refresh, toast }
 export function mountGuide(ctx) {
-  const g = { sid: GUIDE[0].id, step: {}, answers: {}, memo: {}, ...load() };
+  const g = { sid: GUIDE[0].id, step: {}, answers: {}, notes: {}, memo: {}, pending: null, ...load() };
+  const OK = '迷わずできた', ASK = ['少し迷った', 'わからなかった'];
   const sc = () => GUIDE.find((x) => x.id === g.sid) || GUIDE[0];
   function render() {
     const s = sc();
@@ -46,8 +48,11 @@ export function mountGuide(ctx) {
           <dt>こう操作する</dt><dd>${esc(st.how)}</dd>
           <dt>こうなる</dt><dd>${esc(st.then)}</dd>
         </dl>
-        <span class="label">そのとおりになった？</span>
-        <div class="answers" role="group" aria-label="答え">${['なった', 'ちょっと違う', 'ならない'].map((a) => `<button class="mini ${ans[i] === a ? 'on' : ''}" type="button" data-gd-answer="${a}">${a}</button>`).join('')}</div>
+        <span class="label">操作してみて、どうだった？</span>
+        <div class="answers" role="group" aria-label="答え">${[OK, ...ASK].map((a) => `<button class="mini ${ans[i] === a ? 'on' : ''}" type="button" data-gd-answer="${a}">${a}</button>`).join('')}</div>
+        ${ASK.includes(ans[i]) && g.pending === `${s.id}:${i}` ? `<label for="gd-note">どこで迷った？（ひとことでOK）</label>
+          <textarea id="gd-note" rows="2" placeholder="例：宿を選ぶボタンが見つからなかった">${esc(((g.notes[s.id] || {})[i]) || '')}</textarea>
+          <button class="btn primary small" type="button" id="gd-note-next">次へ</button>` : ''}
         <div class="row-inline wrap">${i > 0 ? `<button class="btn small" type="button" data-gd-step="${i - 1}">前へ</button>` : ''}<button class="btn small" type="button" id="gd-reset">このシナリオの最初の状態にする</button></div>`;
     }
     ctx.el.innerHTML = head + body;
@@ -62,22 +67,32 @@ export function mountGuide(ctx) {
   ctx.el.addEventListener('change', (e) => {
     if (e.target.id === 'gd-sc') start(e.target.value);
   });
-  ctx.el.addEventListener('input', (e) => { if (e.target.id === 'gd-memo') { g.memo[sc().id] = e.target.value; keep(g); } });
+  ctx.el.addEventListener('input', (e) => {
+    if (e.target.id === 'gd-memo') { g.memo[sc().id] = e.target.value; keep(g); }
+    if (e.target.id === 'gd-note') { const s = sc(); g.notes[s.id] = { ...(g.notes[s.id] || {}), [g.step[s.id] || 0]: e.target.value }; keep(g); }
+  });
   ctx.el.addEventListener('click', async (e) => {
     const t = e.target, s = sc();
     const a = t.closest('[data-gd-answer]');
-    if (a) { const i = g.step[s.id] || 0; g.answers[s.id] = { ...(g.answers[s.id] || {}), [i]: a.dataset.gdAnswer }; g.step[s.id] = i + 1; keep(g); return render(); }
+    if (a) {
+      const i = g.step[s.id] || 0, v = a.dataset.gdAnswer;
+      g.answers[s.id] = { ...(g.answers[s.id] || {}), [i]: v };
+      // 迷ったときは「どこで？」を書いてから次へ
+      if (ASK.includes(v)) { g.pending = `${s.id}:${i}`; keep(g); render(); const n = ctx.el.querySelector('#gd-note'); if (n) n.focus(); return; }
+      g.pending = null; g.step[s.id] = i + 1; keep(g); return render();
+    }
+    if (t.id === 'gd-note-next') { g.pending = null; g.step[s.id] = (g.step[s.id] || 0) + 1; keep(g); return render(); }
     const st = t.closest('[data-gd-step]');
     if (st) { g.step[s.id] = Number(st.dataset.gdStep); keep(g); return render(); }
     const nx = t.closest('[data-gd-next]');
     if (nx) return start(nx.dataset.gdNext);
     if (t.id === 'gd-reset') return start(s.id);
     if (t.id === 'gd-copy') {
-      const lines = ['【ふたりの旅 お試しの答えと感想】'];
+      const lines = ['【ふたりの旅 操作のしやすさ：答えと感想】'];
       for (const x of GUIDE) {
         const an = g.answers[x.id] || {};
         lines.push('', x.title);
-        x.steps.forEach((y, i) => lines.push(`・${y.want} → ${an[i] || '未回答'}`));
+        x.steps.forEach((y, i) => { const n = ((g.notes[x.id] || {})[i] || '').trim(); lines.push(`・${y.want} → ${an[i] || '未回答'}${n && an[i] !== OK ? `（${n}）` : ''}`); });
         lines.push(`感じたこと：${g.memo[x.id] || 'なし'}`);
       }
       const text = lines.join('\n');
