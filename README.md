@@ -81,7 +81,11 @@ Supabase をつなぐ前でも「お試しモード」で動きます（記録�
 ## テストの実行（開発用）
 
 ```
-node --test tests/logic.test.mjs
+node --test tests/logic.test.mjs tests/plan.test.mjs
 node --experimental-strip-types --test tests/ingest.test.mjs
+python3 tests/ui/ui_test.py .        # 記録・引き出し・共有の画面
+python3 tests/ui/plan_ui_test.py .   # 予定の画面（試し方ガイドの全シナリオを操作）
 ```
+画面のテストは本番と同じアプリを「お試しモード」で動かします（テスト用の別ページは作らない）。
+DBは `tests/db-stub.sql` → `supabase/schema.sql` → `tests/db-rls-test.sql` → `tests/db-plan-test.sql` の順に流して確認します。
 `js/logic.js` の判断ロジックを変えたら `node tools/sync-shared.mjs` で写真の受け口にも反映してください。
