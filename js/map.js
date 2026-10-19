@@ -38,10 +38,10 @@ export function drawPlaces(m, places, opts) {
   if (o.connect) {
     for (const ln of lines) {
       const style = ln.kind === 'visit'
-        ? { color: '#2B5FA6', className: 'route route-visit', weight: 3.5, opacity: 0.9 }
+        ? { color: '#2F80ED', className: 'route route-visit', weight: 3.5, opacity: 0.9 }
         : ln.kind === 'missed'
-          ? { color: '#5F656A', className: 'route route-missed', weight: 2.5, dashArray: '6 7', opacity: 0.9 }
-          : { color: '#1E6B66', className: 'route route-want', weight: 2.5, dashArray: '2 7', opacity: 0.9, lineCap: 'round' };
+          ? { color: '#98A2AC', className: 'route route-missed', weight: 2.5, dashArray: '6 7', opacity: 0.9 }
+          : { color: '#13A386', className: 'route route-want', weight: 2.5, dashArray: '2 7', opacity: 0.9, lineCap: 'round' };
       L.polyline(ln.points, { ...style, interactive: false }).addTo(m.layer);
     }
   }
@@ -88,7 +88,7 @@ export function center(m) {
 export function destroyMap(m) { if (m) m.map.remove(); }
 
 // ---------- 予定：日ごとの色で、始まり→場所→終わりを線で結ぶ ----------
-export const DAY_COLORS = ['#2B5FA6', '#C46A16', '#2E7D4F', '#8E44AD', '#B03A6F', '#0F7C8C', '#7A6A1F'];
+export const DAY_COLORS = ['#2F80ED', '#FF7A59', '#13A386', '#9B5DE5', '#F2A007', '#E8578A', '#0FA3C7'];
 const anchorLabel = (a) => (a.kind === 'station' ? a.name.replace(/駅$/, '').slice(0, 5) : a.kind === 'hotel' ? '宿' : a.kind === 'tbd' ? '宿?' : '');
 
 // res：planTrip の結果。opts：{ tm:{on,today,here}, selectedId, onSelect, fit }

@@ -8,7 +8,16 @@ const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '
 const load = () => { try { return JSON.parse(localStorage.getItem(KEY) || 'null') || {}; } catch { return {}; } };
 const keep = (g) => { try { localStorage.setItem(KEY, JSON.stringify(g)); } catch { /* 保存できなくても動かす */ } };
 
-export const showGuide = (store, trip) => store.mode === 'demo' && trip.id === KOBE_TRIP_ID;
+// テスト用のURL（…/futari-tabi/?test）で開いたときだけガイドを出す。?test=0 で消す
+// アプリのプログラムは本番と同じ。違うのは「ガイドを出すかどうか」だけ
+export function isTestMode() {
+  try {
+    const q = new URLSearchParams(location.search);
+    if (q.has('test')) localStorage.setItem('futari-tabi-test', q.get('test') === '0' ? '0' : '1');
+    return localStorage.getItem('futari-tabi-test') === '1';
+  } catch { return new URLSearchParams(location.search).has('test'); }
+}
+export const showGuide = (store, trip) => isTestMode() && store.mode === 'demo' && trip.id === KOBE_TRIP_ID;
 
 // シナリオの最初の状態にする（この旅の場所を入れ替え、旅の予定を戻す）
 export async function applyScenario(store, tripId, sc) {

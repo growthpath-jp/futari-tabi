@@ -17,7 +17,9 @@ const todayISO = () => new Date(Date.now() + 9 * 3600000).toISOString().slice(0,
 
 // ctx: { el, getTrip, getPlaces, store, guard, toast, refresh, openPlace(id), searchAny(q) }
 export function createPlanView(ctx) {
-  const ui = { pickFor: null, tm: { on: false, today: 0, now: '9:00', here: null } };
+  const ui = { pickFor: null, open: new Set(), tm: { on: false, today: 0, now: '9:00', here: null } };
+  const isOpen = (k) => ui.open.has(k);
+  const chev = (k) => `<span class="chev" aria-hidden="true">${isOpen(k) ? '▴' : '▾'}</span>`;
   let res = null;
   const trip = () => ctx.getTrip();
   const place = (id) => ctx.getPlaces().find((p) => p.id === id);
@@ -44,11 +46,12 @@ export function createPlanView(ctx) {
     }
     const plan = r.plan;
     ctx.el.innerHTML = `
-      ${tripModeBox(r)}
-      <button class="btn block" type="button" id="pv-reassign">おまかせの日を組み直す</button>
-      <p class="hint">宿や時刻を変えても、日は自動では変わりません。合わせたいときに押してください（自分で日を決めた場所は動きません）。</p>
-      <div class="stack"><span class="label">移動手段</span>
-        <div class="segs small" role="radiogroup" aria-label="移動手段">${Object.entries(MODES).map(([k, m]) => `<label class="seg"><input type="radio" name="pv-mode" value="${k}" ${k === plan.mode ? 'checked' : ''}>${m.label}</label>`).join('')}</div></div>
+      <div class="pv-tools">
+        <button class="tool ${ui.tm.on ? 'on' : ''}" type="button" id="pv-tm" aria-pressed="${ui.tm.on}">🧭 旅行中モード</button>
+        <button class="tool" type="button" id="pv-reassign" title="宿や時刻を変えても日は自動では変わりません。合わせたいときに押します">🔄 日を組み直す</button>
+        <label class="tool tool-select"><span class="sr-only">移動手段</span><select id="pv-mode">${Object.entries(MODES).map(([k, m]) => `<option value="${k}" ${k === plan.mode ? 'selected' : ''}>${k === 'walk' ? '🚶' : k === 'car' ? '🚗' : '🚃'} ${m.label}</option>`).join('')}</select></label>
+      </div>
+      ${ui.tm.on ? tripModeBox(r) : ''}
       ${r.days.map((x) => dayHtml(r, x)).join('')}`;
     saveFirstDays(r);
   }
@@ -68,7 +71,6 @@ export function createPlanView(ctx) {
 
   function tripModeBox(r) {
     const tm = ui.tm;
-    if (!tm.on) return '<button class="btn block" type="button" id="pv-tm">旅行中モードにする（今いる場所から次の目的地を案内）</button>';
     const today = r.days[tm.today];
     const next = today && today.order[0];
     let body;
@@ -81,7 +83,7 @@ export function createPlanView(ctx) {
         <div class="row-inline wrap"><button class="btn primary small" type="button" id="pv-replan">今いる場所から並べ直す</button><a class="btn small" href="${url}" target="_blank" rel="noopener">Googleマップで道案内</a></div>`;
     }
     return `<section class="notice stack tm-box" aria-live="polite">
-      <div class="row-between"><b>旅行中モード</b><button class="btn small" type="button" id="pv-tm">終える</button></div>
+      <b>🧭 旅行中モード</b>
       <div class="row-inline wrap">
         <label for="pv-today">今日</label><select id="pv-today">${r.days.map((d) => `<option value="${d.d}" ${d.d === tm.today ? 'selected' : ''}>${d.label}</option>`).join('')}</select>
         <label for="pv-now">今の時刻</label>${timeSel('pv-now', tm.now, '6:00', '23:00', 15)}
@@ -105,20 +107,23 @@ export function createPlanView(ctx) {
       ].join('');
       // 予約などの前に60分以上あくときは「空き時間」として見せる
       const gap = y && y.wait >= 60 ? `<li class="gap"><span>空き時間 ${span(y.wait)}<small>${fmt(y.arrive - y.wait)}〜${fmt(y.arrive)}</small></span><button class="mini" type="button" data-act="fill" data-d="${d}">空き時間を埋める</button></li>` : '';
-      return `${gap}<li class="prow" data-id="${p.id}" data-d="${d}">
+      const k = 'p-' + p.id;
+      return `${gap}<li class="prow ${isOpen(k) ? 'open' : ''}" data-id="${p.id}" data-d="${d}">
         <button class="handle" type="button" aria-label="${esc(p.name)}を並べ替え（ドラッグ）"><svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><circle cx="9" cy="6" r="1.7"/><circle cx="15" cy="6" r="1.7"/><circle cx="9" cy="12" r="1.7"/><circle cx="15" cy="12" r="1.7"/><circle cx="9" cy="18" r="1.7"/><circle cx="15" cy="18" r="1.7"/></svg></button>
         <span class="num" style="background:${color}">${i + 1}</span>
-        <div class="pmain"><b>${esc(p.name)}</b>
-          <span class="pmeta">${y ? `${fmt(y.arrive)}着 ・ ${span(p.stay)} ・ 移動${Math.round(y.move)}分${y.wait > 1 && y.wait < 60 ? ` ・ 待ち${Math.round(y.wait)}分` : ''}` : ''}</span>
-          ${warn ? `<span class="pwarn">${esc(warn)}</span>` : ''}
-          ${tags ? `<div class="tags">${tags}</div>` : ''}</div>
+        <button class="pmain" type="button" data-toggle="${k}" aria-expanded="${isOpen(k)}">
+          <span class="pline"><span class="ptime">${y ? fmt(y.arrive) : ''}</span><b>${esc(p.name)}</b></span>
+          <span class="pmeta">${span(p.stay)}いる${y && y.wait > 1 && y.wait < 60 ? ` ・ 待ち${Math.round(y.wait)}分` : ''}${p.priority === 'maybe' ? ' ・ 行けたら' : ''}${p.at != null ? ` ・ ${fmt(p.at)}の予約` : ''}</span>
+          ${warn ? `<span class="pwarn">${esc(warn)}</span>` : ''}</button>
         <div class="updown"><button type="button" data-act="up" aria-label="上へ" ${i === 0 ? 'disabled' : ''}>↑</button><button type="button" data-act="down" aria-label="下へ" ${i === x.order.length - 1 ? 'disabled' : ''}>↓</button></div>
-        <div class="pctrl">
+        ${isToday ? '<div class="pctrl pctrl-today"><button class="mini ok" type="button" data-act="done">✓ 行った</button><button class="mini" type="button" data-act="cancel">中止</button></div>' : ''}
+        ${isOpen(k) ? `<div class="pctrl">
+          ${y ? `<span class="pmeta">前の場所から移動 約${Math.round(y.move)}分</span>` : ''}
+          ${tags ? `<div class="tags">${tags}</div>` : ''}
           <label class="sr-only" for="mv-${p.id}">何日目</label>
           <select id="mv-${p.id}" data-act="move"><option value="" ${p.day == null || p.auto ? 'selected' : ''}>日はおまかせ</option>${r.days.map((dd) => `<option value="${dd.d}" ${p.day === dd.d && !p.auto ? 'selected' : ''}>${dd.label}に決める</option>`).join('')}</select>
-          <button class="mini" type="button" data-act="edit">変更</button>
-          ${isToday ? '<button class="mini" type="button" data-act="done">行った</button><button class="mini" type="button" data-act="cancel">中止</button>' : ''}
-        </div></li>`;
+          <button class="mini" type="button" data-act="edit">詳しく変える</button>
+        </div>` : ''}</li>`;
     }).join('');
     const skip = x.skipped.length ? `<div class="stack"><span class="label">見送り候補（時間に収まらない「行けたら」）</span>${x.skipped.map((p) => `<div class="prow" data-id="${p.id}" data-d="${d}"><span></span><span class="num num-skip">?</span><div class="pmain"><b>${esc(p.name)}</b><span class="pmeta">${span(p.stay)}</span></div><span></span><div class="pctrl"><button class="mini" type="button" data-act="force">この日に入れる</button><button class="mini" type="button" data-act="edit">変更</button></div></div>`).join('')}</div>` : '';
     return `<section class="day stack" aria-label="${esc(x.label)}" data-day="${d}">
@@ -131,27 +136,41 @@ export function createPlanView(ctx) {
       ${skip}</section>`;
   }
 
+  // 1日の始まり・終わりの行：普段は1行（アイコン・名前・ひとこと・時刻）、タップで詳しい設定を開く
+  function term(key, { icon, kind, name, small, time, cls = '', body = '' }) {
+    const open = isOpen(key);
+    return `<div class="terminal ${cls}" data-term="${key}">
+      <button class="term-head" type="button" data-toggle="${key}" aria-expanded="${open}">
+        <span class="term-icon" aria-hidden="true">${icon}</span>
+        <span class="term-main"><span class="term-kind">${kind}</span><b class="tname">${name}</b>${small ? `<small>${small}</small>` : ''}</span>
+        <span class="ttime">${time || ''}</span>${chev(key)}
+      </button>
+      ${open ? `<div class="term-body">${body}</div>` : ''}</div>`;
+  }
+
   function startRow(r, x) {
     const d = x.d, plan = r.plan;
-    if (ui.tm.on && ui.tm.today === d && ui.tm.here) return `<div class="terminal"><span class="kind">今</span><span class="tname">今いる場所</span><span class="ttime">${esc(ui.tm.now)}</span></div>`;
+    if (ui.tm.on && ui.tm.today === d && ui.tm.here) return `<div class="terminal term-here"><div class="term-head"><span class="term-icon" aria-hidden="true">📍</span><span class="term-main"><span class="term-kind">今</span><b class="tname">今いる場所</b></span><span class="ttime">${esc(ui.tm.now)}</span></div></div>`;
     if (d === 0) {
       const a = plan.arrive;
-      return `<div class="terminal ${a ? '' : 'tbd'}" data-term="arrive"><span class="kind">到着</span>
-        <span class="tname">${a ? esc(a.name) : '着く場所はまだ'}<small>${a ? `${esc(a.via || '')}で着く` : '駅や空港を決めると、そこから1日目が始まります'}</small></span>
-        <span class="ttime">${a && a.time ? esc(a.time) + '着' : ''}</span>
-        <div class="tctrl"><label for="pv-arr-time">着く時刻</label>${timeInput('pv-arr-time', a && a.time, '着く時刻')}
+      return term('arrive', {
+        icon: '🚄', kind: '到着', cls: a ? 'term-station' : 'tbd',
+        name: a ? esc(a.name) : '着く場所を決める', small: a ? `${esc(a.via || '')}で着く` : '駅や空港を決めると、そこから1日目が始まります',
+        time: a && a.time ? esc(a.time) + '着' : '',
+        body: `<div class="tctrl"><label for="pv-arr-time">着く時刻</label>${timeInput('pv-arr-time', a && a.time, '着く時刻')}
           <button class="mini" type="button" data-pick-open="arrive">${a ? '着く場所を変える' : '着く場所を決める'}</button></div>
-        ${ui.pickFor === 'arrive' ? picker('arrive') : ''}</div>`;
+          ${ui.pickFor === 'arrive' ? picker('arrive') : ''}`,
+      });
     }
     const n = plan.nights[d - 1];
     const late = n.status === 'booked' && x.startTime > hm(n.checkout);
-    const name = x.start ? x.start.name : '前の日の最後の場所の近く';
-    const from = n.status === 'free' ? '<small>前の夜は当日探した宿（素泊まり）。その近くから</small>'
-      : n.status === 'booked' ? `<small>チェックアウト ${esc(n.checkout)}まで</small>` : '<small>前の夜の宿から</small>';
-    return `<div class="terminal ${n.status === 'booked' ? '' : 'tbd'}"><span class="kind">出発</span>
-      <span class="tname">${esc(name)}${from}${late ? `<small class="pwarn">チェックアウトの${esc(n.checkout)}を過ぎています</small>` : ''}</span>
-      <span class="ttime">${fmt(x.startTime)}</span>
-      <div class="tctrl"><label for="pv-ts-${d}">出発する時刻</label>${timeSel('pv-ts-' + d, plan.starts[d], '6:00', '15:00')}</div></div>`;
+    const small = late ? `<span class="pwarn">チェックアウトの${esc(n.checkout)}を過ぎています</span>`
+      : n.status === 'free' ? '前の夜に泊まった所の近くから' : n.status === 'booked' ? `チェックアウト ${esc(n.checkout)}まで` : '前の夜の宿から';
+    return term('start-' + d, {
+      icon: n.status === 'free' ? '🌙' : '🏨', kind: '出発', cls: (n.status === 'booked' ? 'term-hotel' : 'tbd') + (late ? ' warn' : ''),
+      name: esc(x.start ? x.start.name : '前の日の最後の場所の近く'), small, time: fmt(x.startTime),
+      body: `<div class="tctrl"><label for="pv-ts-${d}">出発する時刻</label>${timeSel('pv-ts-' + d, plan.starts[d], '6:00', '15:00')}</div>`,
+    });
   }
 
   function endRow(r, x) {
@@ -159,40 +178,45 @@ export function createPlanView(ctx) {
     if (d === last) {
       const lv = plan.leave;
       const late = lv && lv.time ? Math.max(0, x.sim.finish - x.endTime) : 0;
-      const note = !lv ? '<small>帰る駅や空港を決めると、その時刻に間に合うように組みます</small>'
-        : late > 0 ? `<small class="pwarn">${Math.round(late)}分足りません（${fmt(x.sim.finish)}ごろ着）</small>`
-        : x.order.length ? `<small>${fmt(x.sim.finish)}ごろ着く見込み（出発の15分前までに着く計算）</small>` : '<small>出発の15分前までに着く計算</small>';
-      return `<div class="terminal ${lv ? '' : 'tbd'}" data-term="leave"><span class="kind">帰り</span>
-        <span class="tname">${lv ? esc(lv.name) : '帰る場所はまだ'}${lv && lv.via ? `<small>${esc(lv.via)}</small>` : ''}${note}</span>
-        <span class="ttime">${lv && lv.time ? esc(lv.time) + '発' : ''}</span>
-        <div class="tctrl"><label for="pv-lv-time">出発の時刻</label>${timeInput('pv-lv-time', lv && lv.time, '出発の時刻')}
+      const small = !lv ? '帰る駅や空港を決めると、その時刻に間に合うように組みます'
+        : late > 0 ? `<span class="pwarn">${Math.round(late)}分足りません（${fmt(x.sim.finish)}ごろ着）</span>`
+        : x.order.length ? `${fmt(x.sim.finish)}ごろ着く見込み` : '出発の15分前までに着く計算';
+      return term('leave', {
+        icon: '🚄', kind: '帰り', cls: (lv ? 'term-station' : 'tbd') + (late ? ' warn' : ''),
+        name: lv ? esc(lv.name) : '帰る場所を決める', small, time: lv && lv.time ? esc(lv.time) + '発' : '',
+        body: `<div class="tctrl"><label for="pv-lv-time">出発の時刻</label>${timeInput('pv-lv-time', lv && lv.time, '出発の時刻')}
           <button class="mini" type="button" data-pick-open="leave">${lv ? '帰る場所を変える' : '帰る場所を決める'}</button></div>
-        ${ui.pickFor === 'leave' ? picker('leave') : ''}</div>`;
+          <p class="hint">出発の15分前までに着くように組みます。</p>
+          ${ui.pickFor === 'leave' ? picker('leave') : ''}`,
+      });
     }
     const n = plan.nights[d];
     const seg = `<div class="segs small nstat" role="radiogroup" aria-label="${esc(x.label)}の宿">${[['booked', '予約済み'], ['tbd', 'まだ'], ['free', '当日探す']].map(([v, l]) => `<label class="seg"><input type="radio" name="pv-ns-${d}" value="${v}" ${n.status === v ? 'checked' : ''}>${l}</label>`).join('')}</div>`;
     if (n.status === 'free') {
       const lastP = x.order[x.order.length - 1];
       const lastRow = lastP && x.sim.rows.find((y) => y.id === lastP.id);
-      return `<div class="terminal tbd" data-term="night-${d}"><span class="kind">宿</span>
-        <span class="tname">当日探す（素泊まり）<small>${lastP ? `最後の「${esc(lastP.name)}」で1日が終わり。次の日はその近くから出発` : '最後の場所で1日が終わり。次の日はその近くから出発'}</small></span>
-        <span class="ttime">${lastRow ? fmt(lastRow.leave) + 'ごろまで' : ''}</span>
-        <div class="tctrl">${seg}</div></div>`;
+      return term('night-' + d, {
+        icon: '🌙', kind: '宿', cls: 'term-free', name: '当日探す（素泊まり）',
+        small: lastP ? `「${esc(lastP.name)}」で1日が終わり。次の日はその近くから` : '最後の場所で1日が終わり。次の日はその近くから',
+        time: lastRow ? fmt(lastRow.leave) + 'まで' : '', body: `<div class="tctrl">${seg}</div>`,
+      });
     }
     const booked = n.status === 'booked' && n.hotel;
     const ci = hm(n.checkin), lastIn = hm(n.lastIn), fin = x.sim.finish;
-    const note = fin > lastIn ? `<small class="pwarn">チェックインの${esc(n.lastIn)}に${Math.round(fin - lastIn)}分遅れます（${fmt(fin)}ごろ着）</small>`
-      : !x.order.length ? '<small>この日の場所はまだありません</small>'
-      : fin < ci ? `<small>${fmt(fin)}ごろ着く見込み。チェックインの${esc(n.checkin)}より早いので、荷物を預けるか、もう1か所入れられます</small>`
-      : `<small>${fmt(fin)}ごろ着く見込み</small>`;
-    return `<div class="terminal ${booked ? '' : 'tbd'}" data-term="night-${d}"><span class="kind">宿</span>
-      <span class="tname">${booked ? esc(n.hotel.name) : '宿はまだ（場所の真ん中あたりで仮に計算）'}${note}</span>
-      <span class="ttime">${x.order.length ? fmt(fin) + '着' : ''}</span>
-      <div class="tctrl">${seg}</div>
-      <div class="tctrl"><span>チェックイン</span>${timeSel('pv-ci-' + d, n.checkin, '12:00', '18:00', 30, 'チェックイン（から）')}<span>〜</span>${timeSel('pv-li-' + d, n.lastIn, '16:00', '24:00', 30, 'チェックイン（まで）')}</div>
-      <div class="tctrl"><label for="pv-co-${d}">次の朝のチェックアウト</label>${timeSel('pv-co-' + d, n.checkout, '9:00', '13:00', 30)}</div>
-      <div class="tctrl"><button class="mini" type="button" data-pick-open="${d}">${booked ? '宿を変える' : '宿を選ぶ'}</button></div>
-      ${ui.pickFor === d ? picker(d) : ''}</div>`;
+    const late = fin > lastIn;
+    const small = late ? `<span class="pwarn">チェックインの${esc(n.lastIn)}に${Math.round(fin - lastIn)}分遅れます</span>`
+      : x.order.length && fin < ci ? `チェックイン ${esc(n.checkin)}〜（早めに着きます）`
+      : `チェックイン ${esc(n.checkin)}〜${esc(n.lastIn)}`;
+    return term('night-' + d, {
+      icon: '🏨', kind: '宿', cls: (booked ? 'term-hotel' : 'tbd') + (late ? ' warn' : ''),
+      name: booked ? esc(n.hotel.name) : '宿はまだ決めていない', small, time: x.order.length ? fmt(fin) + '着' : '',
+      body: `<div class="tctrl">${seg}</div>
+        <div class="tctrl"><span>チェックイン</span>${timeSel('pv-ci-' + d, n.checkin, '12:00', '18:00', 30, 'チェックイン（から）')}<span>〜</span>${timeSel('pv-li-' + d, n.lastIn, '16:00', '24:00', 30, 'チェックイン（まで）')}</div>
+        <div class="tctrl"><label for="pv-co-${d}">次の朝のチェックアウト</label>${timeSel('pv-co-' + d, n.checkout, '9:00', '13:00', 30)}</div>
+        ${booked ? '' : '<p class="hint">宿が決まるまでは、行く場所の真ん中あたりに泊まる仮定で計算します。</p>'}
+        <div class="tctrl"><button class="mini" type="button" data-pick-open="${d}">${booked ? '宿を変える' : '宿を選ぶ'}</button></div>
+        ${ui.pickFor === d ? picker(d) : ''}`,
+    });
   }
 
   function picker(key) {
@@ -247,8 +271,10 @@ export function createPlanView(ctx) {
       const { order } = replanFrom(today.day, ui.tm.here, hm(ui.tm.now), today.order, res.mode);
       return setManual(ui.tm.today, order.map((p) => p.id));
     }
+    const tg = t.closest('[data-toggle]');
+    if (tg && !justDragged) { const k = tg.dataset.toggle; if (ui.open.has(k)) ui.open.delete(k); else ui.open.add(k); return ctx.repaint(); }
     const po = t.closest('[data-pick-open]');
-    if (po) { const k = po.dataset.pickOpen; ui.pickFor = k === 'arrive' || k === 'leave' ? k : Number(k); ctx.repaint(); const q = document.getElementById('pv-pq'); if (q) q.focus(); return; }
+    if (po) { const k = po.dataset.pickOpen; ui.pickFor = k === 'arrive' || k === 'leave' ? k : Number(k); ui.open.add(typeof ui.pickFor === 'number' ? 'night-' + k : k); ctx.repaint(); const q = document.getElementById('pv-pq'); if (q) q.focus(); return; }
     if (t.closest('[data-pick-close]')) { ui.pickFor = null; return ctx.repaint(); }
     if (t.closest('[data-pick-search]')) {
       const q = document.getElementById('pv-pq').value.trim(), box = document.getElementById('pv-pr');
@@ -290,7 +316,7 @@ export function createPlanView(ctx) {
 
   ctx.el.addEventListener('change', async (e) => {
     const t = e.target;
-    if (t.name === 'pv-mode') return savePlan((plan) => { plan.mode = t.value; });
+    if (t.id === 'pv-mode') return savePlan((plan) => { plan.mode = t.value; });
     if (t.id === 'pv-today') { ui.tm.today = Number(t.value); return ctx.repaint(); }
     if (t.id === 'pv-now') { ui.tm.now = t.value; return ctx.repaint(); }
     if (t.id === 'pv-arr-time' || t.id === 'pv-lv-time') {
@@ -307,7 +333,7 @@ export function createPlanView(ctx) {
     if (m) {
       const i = Number(m[1]);
       const n = res.plan.nights[i];
-      if (t.value === 'booked' && !n.hotel) { ui.pickFor = i; ctx.repaint(); ctx.toast('泊まる宿を探して選んでください'); return; }
+      if (t.value === 'booked' && !n.hotel) { ui.pickFor = i; ui.open.add('night-' + i); ctx.repaint(); ctx.toast('泊まる宿を探して選んでください'); return; }
       return savePlan((plan) => { plan.nights[i].status = t.value; plan.manual = {}; });
     }
     if (t.dataset && t.dataset.act === 'move') {
@@ -320,7 +346,7 @@ export function createPlanView(ctx) {
   });
 
   // ---------- ドラッグで並べ替え（つまみ：すぐ／行全体：長押し） ----------
-  let drag = null, pressTimer = null, pressStart = null;
+  let drag = null, pressTimer = null, pressStart = null, justDragged = false;
   const startDrag = (row, y) => { drag = { row, list: row.parentElement, d: Number(row.parentElement.dataset.d), offset: y - row.getBoundingClientRect().top }; row.classList.add('is-dragging'); if (navigator.vibrate) navigator.vibrate(10); };
   const moveDrag = (y) => {
     const { row, list } = drag;
@@ -337,6 +363,7 @@ export function createPlanView(ctx) {
     const { row, list, d } = drag;
     row.classList.remove('is-dragging'); row.style.transform = '';
     drag = null;
+    justDragged = true; setTimeout(() => { justDragged = false; }, 50);
     const ids = [...list.querySelectorAll('.prow')].map((x) => x.dataset.id);
     if (ids.join() !== orderIds(d).join()) setManual(d, ids);
   };
@@ -344,7 +371,7 @@ export function createPlanView(ctx) {
     const row = e.target.closest('.day-list .prow');
     if (!row || !ctx.el.contains(row)) return;
     if (e.target.closest('.handle')) { e.preventDefault(); startDrag(row, e.clientY); return; }
-    if (e.target.closest('button, select, a, input')) return;
+    if (e.target.closest('button:not(.pmain), select, a, input')) return;
     pressStart = { x: e.clientX, y: e.clientY };
     pressTimer = setTimeout(() => startDrag(row, pressStart.y), 450);
   };

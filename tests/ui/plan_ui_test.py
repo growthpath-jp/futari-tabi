@@ -38,6 +38,7 @@ first_term = lambda pg, d: day(pg, d).locator('.terminal').first.inner_text()
 last_term = lambda pg, d: day(pg, d).locator('.terminal').last.inner_text()
 def wait(pg, ms=250): pg.wait_for_timeout(ms)
 def register(pg, q, day_idx=None, at=None, stay=None, maybe=False):
+    open_add(pg)
     pg.fill('#add-text', q); pg.click('#add-go'); pg.wait_for_selector('.cands [data-i]'); pg.locator('.cands [data-i]').first.click()
     pg.wait_for_selector('#cf-ok')
     if day_idx is not None: pg.select_option('#cp-day', str(day_idx))
@@ -48,13 +49,23 @@ def register(pg, q, day_idx=None, at=None, stay=None, maybe=False):
 def answer(pg, a='迷わずできた'): pg.locator(f'[data-gd-answer="{a}"]').click(); wait(pg, 100)
 def scenario(pg, sid): pg.select_option('#gd-sc', sid); wait(pg, 600)
 def mins(text):
-    m = re.search(r'(\d+):(\d\d)ごろ', text); return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+    m = re.search(r'(\d+):(\d\d)(?:ごろ|着)', text); return int(m.group(1)) * 60 + int(m.group(2)) if m else None
+def opn(pg, key):
+    # 1行の表示をタップして、詳しい設定を開く（開いていなければ）
+    b = pg.locator(f'[data-toggle="{key}"]')
+    if b.get_attribute('aria-expanded') != 'true': b.click(); wait(pg, 200)
+def open_add(pg):
+    if pg.locator('#add-open').is_visible(): pg.click('#add-open'); wait(pg, 100)
 
 with sync_playwright() as p:
     b = p.chromium.launch(); ctx = b.new_context(viewport={'width': 390, 'height': 844}, locale='ja-JP', timezone_id='Asia/Tokyo'); ctx.route('**/*', route)
     pg = ctx.new_page(); pg.on('pageerror', lambda e: errors.append(str(e))); pg.on('console', lambda m: m.type == 'error' and errors.append(m.text))
     pg.goto('http://127.0.0.1:8772/'); pg.wait_for_selector('.bar h1')
     check('0 ホームに神戸旅行がある', pg.locator('.list .item', has_text='神戸旅行').count() == 1)
+    pg.locator('.list .item', has_text='神戸旅行').click(); pg.wait_for_selector('#plan-area .day'); wait(pg, 400)
+    check('0 本番のURLではガイドが出ない', pg.locator('#guide').count() == 0)
+    check('0 予定タブでは、登録欄は閉じていて「行きたい場所を登録」ボタンだけ', pg.locator('#add-open').is_visible() and not pg.locator('#add-card').is_visible())
+    pg.goto('http://127.0.0.1:8772/?test#/'); pg.wait_for_selector('.bar h1')
     pg.locator('.list .item', has_text='神戸旅行').click(); pg.wait_for_selector('#guide .gd-steps'); wait(pg, 500)
 
     # ① 行きたい場所を登録
@@ -63,15 +74,18 @@ with sync_playwright() as p:
     t0 = first_term(pg, 0)
     check('1 1日目は「到着 新神戸駅 12:29着」から', '到着' in t0 and '新神戸駅' in t0 and '12:29着' in t0, t0)
     check('1 最終日は「帰り 新神戸駅 17:00発」', '17:00発' in last_term(pg, 3), last_term(pg, 3))
-    check('1 宿は3泊それぞれ「予約済み/まだ/当日探す」', pg.locator('input[name^="pv-ns-"]').count() == 9)
+    check('1 宿の行は3泊分、普段は1行（設定は閉じている）', pg.locator('[data-term^="night-"]').count() == 3 and pg.locator('input[name^="pv-ns-"]').count() == 0)
+    opn(pg, 'night-0')
+    check('1 宿の行をタップすると「予約済み/まだ/当日探す」が出る', pg.locator('input[name="pv-ns-0"]').count() == 3)
     register(pg, '有馬温泉')
     check('1 有馬温泉を日を決めずに登録 → どこかの日に入る', dayOf(pg, '有馬温泉') >= 0)
-    check('1 時刻が入る（◯:◯◯着）', '着' in pg.locator('.prow', has_text='有馬温泉').locator('.pmeta').inner_text())
+    check('1 時刻が入る（行の先頭に ◯:◯◯）', re.match(r'^\d+:\d\d$', pg.locator('.prow', has_text='有馬温泉').locator('.ptime').inner_text().strip()))
     answer(pg)
     register(pg, 'TOTTEI'); register(pg, '須磨浦')
     check('1 3か所とも予定に入る', all(dayOf(pg, n) >= 0 for n in ['有馬温泉', 'TOTTEI', '須磨浦']))
     answer(pg)
     pid = pg.locator('.prow', has_text='TOTTEI').get_attribute('data-id')
+    opn(pg, 'p-' + pid)
     pg.select_option(f'#mv-{pid}', '2'); wait(pg, 300)
     check('1 何日目を11/2に変える → 11/2に移り「日を決めた」', dayOf(pg, 'TOTTEI') == 2 and '日を決めた' in pg.locator('.prow', has_text='TOTTEI').inner_text())
     answer(pg)
@@ -84,6 +98,7 @@ with sync_playwright() as p:
     # ② 宿
     pg.locator('[data-gd-next]').click(); wait(pg, 600)
     check('2 シナリオ②の状態（3か所・宿はまだ）', len(rows(pg, 0) + rows(pg, 1) + rows(pg, 2) + rows(pg, 3)) == 3 and pg.locator('input[name="pv-ns-0"][value="tbd"]').is_checked())
+    opn(pg, 'night-0')
     pg.locator('label.seg:has(input[name="pv-ns-0"][value="booked"])').click(); wait(pg)
     check('2 「予約済み」を押すと宿を探す欄が開く', pg.locator('[data-pick-for="0"]').count() == 1)
     pg.fill('#pv-pq', 'コンフォートホテル'); pg.click('[data-pick-search]'); pg.wait_for_selector('[data-pick-hit]'); pg.locator('[data-pick-hit]').first.click(); wait(pg, 300)
@@ -92,6 +107,7 @@ with sync_playwright() as p:
     check('2 11/1の出発に「チェックアウト 11:00まで」', 'ERA' in s1 and 'チェックアウト 11:00まで' in s1, s1)
     answer(pg)
     arima_day0 = dayOf(pg, '有馬温泉')
+    opn(pg, 'night-1')
     pg.locator('label.seg:has(input[name="pv-ns-1"][value="booked"])').click(); wait(pg)
     pg.fill('#pv-pq', '向陽閣'); pg.click('[data-pick-search]'); pg.wait_for_selector('[data-pick-hit]'); pg.locator('[data-pick-hit]').first.click(); wait(pg, 300)
     d_before = dayOf(pg, '有馬温泉')
@@ -99,6 +115,7 @@ with sync_playwright() as p:
     pg.click('#pv-reassign'); wait(pg, 500)
     check('2 「おまかせの日を組み直す」→ 有馬温泉は11/1か11/2', dayOf(pg, '有馬温泉') in (1, 2), dayOf(pg, '有馬温泉'))
     answer(pg)
+    opn(pg, 'night-2')
     pg.locator('label.seg:has(input[name="pv-ns-2"][value="free"])').click(); wait(pg, 300)
     e2 = last_term(pg, 2); s3 = first_term(pg, 3); r2 = rows(pg, 2)
     check('2 当日探す：11/2の宿は「当日探す（素泊まり）」', '当日探す（素泊まり）' in e2, e2)
@@ -107,13 +124,16 @@ with sync_playwright() as p:
 
     # ③ 始まり・宿の時間
     scenario(pg, 'g3')
+    opn(pg, 'arrive')
     pg.fill('#pv-arr-time', '13:05'); wait(pg, 300)
     check('3 到着の時刻を13:05に → 「13:05着」', '13:05着' in first_term(pg, 0), first_term(pg, 0))
     answer(pg)
+    opn(pg, 'night-1')
     pg.select_option('#pv-li-1', '18:00'); wait(pg, 300)
     e1 = last_term(pg, 1); f = mins(e1)
     check('3 チェックイン〜18:00 → 18:00までに着く／無理なら赤字', (f is not None and f <= 18 * 60) or '遅れます' in e1 or 'まだありません' in e1, e1)
     answer(pg)
+    opn(pg, 'start-2')
     pg.select_option('#pv-ts-2', '12:00'); wait(pg, 300)
     check('3 出発をチェックアウトより遅く → 注意が出る', 'チェックアウトの11:00を過ぎています' in first_term(pg, 2), first_term(pg, 2))
     answer(pg)
@@ -123,7 +143,7 @@ with sync_playwright() as p:
     register(pg, 'GLION', day_idx=0, at='18:00', stay=180)
     f = mins(last_term(pg, 0))
     check('4 ライブ10/31 18:00 → 宿に着くのは21時以降', f is not None and f >= 21 * 60, last_term(pg, 0))
-    check('4 ライブは18:00着', '18:00着' in pg.locator('.prow', has_text='GLION').locator('.pmeta').inner_text())
+    check('4 ライブは18:00着', pg.locator('.prow', has_text='GLION').locator('.ptime').inner_text().strip() == '18:00')
     answer(pg)
     for q in ['北野', '南京町', 'メリケン', 'ハーバー', '布引']: register(pg, q, maybe=True)
     inplan = sum(len(rows(pg, d)) for d in range(4)); skipped = pg.locator('[data-act="force"]').count()
@@ -169,6 +189,7 @@ with sync_playwright() as p:
     check('7 横にはみ出さない', not pg.evaluate('document.documentElement.scrollWidth > innerWidth + 1'))
     # 予定の条件を場所の画面から変える
     pid = pg.locator('section.day .prow').first.get_attribute('data-id')
+    opn(pg, 'p-' + pid)
     pg.locator(f'.prow[data-id="{pid}"] [data-act="edit"]').click(); pg.wait_for_selector('#sh-plan')
     pg.select_option('#sp-day', '3'); pg.click('#sh-plan button[type=submit]'); wait(pg, 300)
     check('8 場所の画面で「予定の条件」を変えられる（11/3へ）', pg.locator(f'section.day[data-day="3"] .prow[data-id="{pid}"]').count() == 1)

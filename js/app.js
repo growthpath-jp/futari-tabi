@@ -245,13 +245,14 @@ async function renderTrip(tripId, q) {
     <a class="seg ${st.tab === 'record' ? 'on' : ''}" href="#/trip/${tripId}?tab=record" ${st.tab === 'record' ? 'aria-current="page"' : ''}>記録</a>
   </nav>
   <div class="chips" id="chips" role="group" aria-label="表示する場所" ${st.tab === 'plan' ? 'hidden' : ''}></div>
-  <div class="map-wrap"><div id="map" class="map" role="region" aria-label="旅の地図"></div><div class="map-hint" id="map-hint" hidden></div></div>
+  <div class="map-wrap"><div id="map" class="map ${st.tab === 'plan' ? 'map-plan' : ''}" role="region" aria-label="旅の地図"></div><div class="map-hint" id="map-hint" hidden></div></div>
   <main class="page stack-lg">
     ${showGuide(store, trip) ? '<section class="card stack guide" id="guide" aria-live="polite"></section>' : ''}
     <div id="close-banner"></div>
     <section class="card stack" id="sheet" hidden aria-live="polite"></section>
-    <section class="card stack" aria-labelledby="add-h">
-      <h2 id="add-h">場所を登録</h2>
+    ${st.tab === 'plan' ? `<button class="btn primary block" id="add-open" type="button">${icon.plus}行きたい場所を登録</button>` : ''}
+    <section class="card stack" id="add-card" aria-labelledby="add-h" ${st.tab === 'plan' ? 'hidden' : ''}>
+      <div class="row-between"><h2 id="add-h">場所を登録</h2>${st.tab === 'plan' ? '<button class="btn small" type="button" id="add-close">閉じる</button>' : ''}</div>
       <p class="hint">Googleマップで調べた住所をコピーして「貼り付けて探す」。住所のない場所は名前でも探せます。</p>
       <div class="row-inline">
         <button class="btn primary" id="paste-btn" type="button">貼り付けて探す</button>
@@ -500,6 +501,7 @@ async function renderTrip(tripId, q) {
       }), '登録しました');
       if (!p) return;
       result.innerHTML = ''; $('#add-text').value = '';
+      if (addOpen) showAdd(false);
       if (!st.statuses.includes(status)) st.statuses = STATUSES.filter((x) => x === status || st.statuses.includes(x));
       st.selectedId = st.tab === 'plan' && !cand.approx ? null : p.id; st.adjustId = cand.approx ? p.id : null;
       await refresh(false); focusPlace(view.map, p);
@@ -518,6 +520,10 @@ async function renderTrip(tripId, q) {
   }
 
   $('#tap-btn').onclick = () => startTapToPlace('');
+  // 予定タブ：登録欄はボタンで開く（予定を上に見せるため）
+  const addOpen = $('#add-open'), addCard = $('#add-card');
+  const showAdd = (on) => { if (!addOpen) return; addOpen.hidden = on; addCard.hidden = !on; if (on) $('#add-text').focus(); };
+  if (addOpen) { addOpen.onclick = () => showAdd(true); $('#add-close').onclick = () => { result.innerHTML = ''; showAdd(false); }; }
   $('#add-go').onclick = () => handleText($('#add-text').value);
   $('#add-text').addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); handleText(e.target.value); } });
   $('#add-text').addEventListener('paste', () => setTimeout(() => handleText($('#add-text').value), 0));
