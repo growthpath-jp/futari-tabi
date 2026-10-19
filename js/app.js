@@ -296,6 +296,14 @@ async function renderTrip(tripId, q) {
     refresh: () => refresh(false), repaint: (fit, at) => { paint(fit); if (at) focusPlace(view.map, at); },
     openPlace: (id) => { st.selectedId = id; st.adjustId = null; paint(false); $('#sheet').scrollIntoView({ behavior: 'smooth', block: 'start' }); },
     searchAny,
+    // 宿・駅を地図のタップで置く
+    pickOnMap: (cb) => {
+      st.tapToPlace = { name: '' };
+      const hint = $('#map-hint'); hint.hidden = false; hint.textContent = '地図の置きたい場所をタップしてください';
+      $('#map').scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const off = onMapTap(view.map, (lat, lng) => { off(); hint.hidden = true; st.tapToPlace = null; cb(lat, lng); });
+      view.cleanup.push(off);
+    },
   }) : null;
   if (pv) view.cleanup.push(pv.destroy);
   // 旅行中モード：地図をタップして「今いる場所」

@@ -260,3 +260,6 @@ code { font-size: 12px; overflow-wrap: anywhere; background: var(--paper); paddi
 .day-dot { width: 14px; height: 14px; }
 .tm-box { background: var(--teal-soft); }
 .map.map-plan { height: 38vh; min-height: 240px; }
+.pick-help { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
+.pick-steps { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
+.pick-help .mini { text-align: left; min-height: 38px; }

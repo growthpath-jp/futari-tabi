@@ -121,6 +121,18 @@ with sync_playwright() as p:
     check('2 当日探す：11/2の宿は「当日探す（素泊まり）」', '当日探す（素泊まり）' in e2, e2)
     check('2 当日探す：11/3は11/2の最後の場所の近くから', (r2 and f'{r2[-1]}の近く' in s3) or (not r2 and '近く' in s3), (r2, s3))
     answer(pg)
+    # 名前で見つからない宿：住所で探す・地図で置く（名前は先に入れたものを使う）
+    opn(pg, 'night-1')
+    pg.locator('[data-pick-open="1"]').click(); wait(pg)
+    pg.fill('#pv-pq', '山の上の小さな宿'); pg.click('[data-pick-search]'); wait(pg, 300)
+    check('2 名前で見つからない → 住所で探す方法が出る', 'Googleマップで調べて' in pg.locator('#pv-pr').inner_text() and pg.locator('#pv-paste').count() == 1 and pg.locator('#pv-tap').count() == 1)
+    pg.fill('#pv-pq', '兵庫県神戸市中央区雲井通4丁目2-10'); pg.click('[data-pick-search]'); pg.wait_for_selector('[data-pick-hit]'); pg.locator('[data-pick-hit]').first.click(); wait(pg, 300)
+    check('2 住所で見つけた宿は、先に入れた名前で入る', '山の上の小さな宿' in last_term(pg, 1), last_term(pg, 1))
+    opn(pg, 'night-1')
+    pg.locator('[data-pick-open="1"]').click(); wait(pg)
+    pg.fill('#pv-pq', '海辺のゲストハウス'); pg.click('#pv-tap'); wait(pg, 200)
+    pg.evaluate('window.__tapMap(34.79,135.24)'); wait(pg, 400)
+    check('2 地図をタップして宿を置ける', '海辺のゲストハウス' in last_term(pg, 1), last_term(pg, 1))
 
     # ③ 始まり・宿の時間
     scenario(pg, 'g3')

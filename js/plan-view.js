@@ -1,6 +1,7 @@
 // 旅の画面「予定」タブ：日ごとの予定（到着・出発・場所・宿・帰り）と旅行中モード
 import { hm, fmt, MODES, simulate, replanFrom, gapFillFor, reassignDays, placePlan, bearingText, travelMin, tripDates, normalizePlan, NIGHT_DEFAULT } from './plan.js';
 import { DAY_COLORS } from './map.js';
+import { extractAddress } from './logic.js';
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 export const TIMES = (from, to, step) => { const a = []; for (let t = hm(from); t <= hm(to); t += step) a.push(fmt(t)); return a; };
@@ -224,14 +225,26 @@ export function createPlanView(ctx) {
     const title = isNight ? `${res.days[key].label}の夜に泊まる宿` : key === 'arrive' ? '旅の始まり：どこに着く？' : '旅の終わり：どこから帰る？';
     return `<div class="hotel-pick" data-pick-for="${key}">
       <span class="label">${title}</span>
-      <div class="row-inline"><label class="sr-only" for="pv-pq">名前・住所</label><input id="pv-pq" placeholder="${isNight ? '宿' : '駅・空港'}の名前、または住所"><button class="btn small" type="button" data-pick-search>探す</button></div>
+      <div class="row-inline"><label class="sr-only" for="pv-pq">名前・住所</label><input id="pv-pq" value="${esc(ui.pickName || '')}" placeholder="${isNight ? '宿' : '駅・空港'}の名前、または住所"><button class="btn small" type="button" data-pick-search>探す</button></div>
       <div class="results" id="pv-pr"></div>
+      <div class="pick-help">
+        <span class="label">名前で見つからないときは</span>
+        <ol class="pick-steps">
+          <li><button class="mini" type="button" id="pv-gmap">Googleマップで${isNight ? '宿' : '場所'}を調べて、住所をコピー</button></li>
+          <li><button class="mini" type="button" id="pv-paste">コピーした住所を貼り付けて探す</button></li>
+        </ol>
+        <button class="mini" type="button" id="pv-tap">または、地図をタップして置く</button>
+      </div>
       <button class="btn small" type="button" data-pick-close>閉じる</button></div>`;
   }
 
   async function setPicked(key, c) {
     ui.pickFor = null;
-    const pt = { name: c.name, lat: c.lat, lng: c.lng, ...(c.address ? { address: c.address } : {}) };
+    // 住所で探したときは、先に入れた名前（宿の名前）を使う
+    const name = (c.address || c.manual) && ui.pickName ? ui.pickName : c.name;
+    ui.pickName = '';
+    const pt = { name, lat: c.lat, lng: c.lng, ...(c.address ? { address: c.address } : {}) };
+    c = { ...c, name };
     if (typeof key === 'number') {
       await savePlan((plan) => { Object.assign(plan.nights[key], { status: 'booked', hotel: pt }); plan.manual = {}; }, `${res.days[key].label}の宿：${c.name}`);
     } else {
@@ -276,14 +289,38 @@ export function createPlanView(ctx) {
     const po = t.closest('[data-pick-open]');
     if (po) { const k = po.dataset.pickOpen; ui.pickFor = k === 'arrive' || k === 'leave' ? k : Number(k); ui.open.add(typeof ui.pickFor === 'number' ? 'night-' + k : k); ctx.repaint(); const q = document.getElementById('pv-pq'); if (q) q.focus(); return; }
     if (t.closest('[data-pick-close]')) { ui.pickFor = null; return ctx.repaint(); }
+    if (t.id === 'pv-gmap') {
+      const q = document.getElementById('pv-pq').value.trim();
+      if (q && !extractAddress(q)) ui.pickName = q;
+      window.open('https://www.google.com/maps/search/?api=1&query=' + encodeURIComponent(q || (typeof ui.pickFor === 'number' ? '宿' : '駅')), '_blank', 'noopener');
+      return;
+    }
+    if (t.id === 'pv-paste') {
+      const inp = document.getElementById('pv-pq');
+      try {
+        const text = (await navigator.clipboard.readText()).trim();
+        if (!text) return ctx.toast('コピーされた文字がありません');
+        const cur = inp.value.trim();
+        if (cur && !extractAddress(cur)) ui.pickName = cur;
+        inp.value = text;
+        document.querySelector('[data-pick-search]').click();
+      } catch { inp.value = ''; inp.focus(); ctx.toast('入力欄を長押しして「ペースト」してから「探す」を押してください'); }
+      return;
+    }
+    if (t.id === 'pv-tap') {
+      const key = ui.pickFor, q = document.getElementById('pv-pq').value.trim();
+      if (q && !extractAddress(q)) ui.pickName = q;
+      return ctx.pickOnMap((lat, lng) => setPicked(key, { name: ui.pickName || (typeof key === 'number' ? '宿' : '着く場所'), lat, lng, manual: true }));
+    }
     if (t.closest('[data-pick-search]')) {
       const q = document.getElementById('pv-pq').value.trim(), box = document.getElementById('pv-pr');
       if (!q) return;
+      if (!extractAddress(q)) ui.pickName = q;
       box.innerHTML = '<p class="sub">探しています…</p>';
       const key = ui.pickFor;
       const list = await ctx.guard(() => ctx.searchAny(q));
       if (!list) { box.innerHTML = ''; return; }
-      box.innerHTML = list.length ? list.map((c, k) => `<button class="item" type="button" data-pick-hit="${k}"><span class="item-main"><b>${esc(c.name)}</b><small>${esc(c.area || c.address || '')}</small></span></button>`).join('') : '<p class="sub">見つかりませんでした。住所でも探せます</p>';
+      box.innerHTML = list.length ? list.map((c, k) => `<button class="item" type="button" data-pick-hit="${k}"><span class="item-main"><b>${esc(c.name)}</b><small>${esc(c.area || c.address || '')}</small></span></button>`).join('') : '<p class="sub">名前では見つかりませんでした。下の「Googleマップで調べて、住所をコピー」→「貼り付けて探す」を試してください</p>';
       box.querySelectorAll('[data-pick-hit]').forEach((b) => b.addEventListener('click', () => setPicked(key, list[Number(b.dataset.pickHit)])));
       return;
     }
