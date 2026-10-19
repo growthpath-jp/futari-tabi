@@ -64,7 +64,7 @@ with sync_playwright() as p:
     # 名前検索
     pg.fill('#add-text', '嵐山'); pg.click('#add-go'); pg.wait_for_selector('.cands .item')
     check('5 名前検索：候補2つ', pg.locator('.cands .item').count() == 2)
-    pg.locator('.cands .item').first.click(); pg.click('#cf-ok'); pg.wait_for_selector('#sheet h2:has-text("嵐山公園")')
+    pg.locator('.cands .item', has_text='嵐山公園').click(); pg.click('#cf-ok'); pg.wait_for_selector('#sheet h2:has-text("嵐山公園")')
     check('5 名前検索：選んで登録', len(pg.evaluate('window.__map')['markers']) == 9)
     # 見つからない → 地図をタップ → 指で調整
     pg.fill('#add-text', '町家カフェ ことり'); pg.click('#add-go'); pg.wait_for_selector('#nf-tap')

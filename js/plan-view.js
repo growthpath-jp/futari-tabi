@@ -215,7 +215,7 @@ export function createPlanView(ctx) {
         <div class="tctrl"><span>チェックイン</span>${timeSel('pv-ci-' + d, n.checkin, '12:00', '18:00', 30, 'チェックイン（から）')}<span>〜</span>${timeSel('pv-li-' + d, n.lastIn, '16:00', '24:00', 30, 'チェックイン（まで）')}</div>
         <div class="tctrl"><label for="pv-co-${d}">次の朝のチェックアウト</label>${timeSel('pv-co-' + d, n.checkout, '9:00', '13:00', 30)}</div>
         ${booked ? '' : '<p class="hint">宿が決まるまでは、行く場所の真ん中あたりに泊まる仮定で計算します。</p>'}
-        <div class="tctrl"><button class="mini" type="button" data-pick-open="${d}">${booked ? '宿を変える' : '宿を選ぶ'}</button></div>
+        <div class="tctrl"><button class="mini" type="button" data-pick-open="${d}">${booked ? '宿を変える' : '宿を選ぶ'}</button>${booked ? `<button class="mini danger" type="button" data-unset-night="${d}">この宿を外す</button>` : ''}</div>
         ${ui.pickFor === d ? picker(d) : ''}`,
     });
   }
@@ -284,6 +284,11 @@ export function createPlanView(ctx) {
       const { order } = replanFrom(today.day, ui.tm.here, hm(ui.tm.now), today.order, res.mode);
       return setManual(ui.tm.today, order.map((p) => p.id));
     }
+    const un = t.closest('[data-unset-night]');
+    if (un) {
+      const i = Number(un.dataset.unsetNight), name = res.plan.nights[i].hotel && res.plan.nights[i].hotel.name;
+      return savePlan((plan) => { plan.nights[i].status = 'tbd'; plan.nights[i].hotel = null; }, `${name || '宿'}を外しました（「まだ」に戻しました）`);
+    }
     const tg = t.closest('[data-toggle]');
     if (tg && !justDragged) { const k = tg.dataset.toggle; if (ui.open.has(k)) ui.open.delete(k); else ui.open.add(k); return ctx.repaint(); }
     const po = t.closest('[data-pick-open]');
@@ -320,8 +325,12 @@ export function createPlanView(ctx) {
       const key = ui.pickFor;
       const list = await ctx.guard(() => ctx.searchAny(q));
       if (!list) { box.innerHTML = ''; return; }
-      box.innerHTML = list.length ? list.map((c, k) => `<button class="item" type="button" data-pick-hit="${k}"><span class="item-main"><b>${esc(c.name)}</b><small>${esc(c.area || c.address || '')}</small></span></button>`).join('') : '<p class="sub">名前では見つかりませんでした。下の「Googleマップで調べて、住所をコピー」→「貼り付けて探す」を試してください</p>';
-      box.querySelectorAll('[data-pick-hit]').forEach((b) => b.addEventListener('click', () => setPicked(key, list[Number(b.dataset.pickHit)])));
+      box.innerHTML = list.length ? `<span class="hint">タップすると地図で場所を確かめられます</span>` + list.map((c, k) => `<button class="item" type="button" data-pick-hit="${k}"><span class="item-main"><b>${esc(c.name)}</b><small>${esc(c.area || c.address || '')}</small></span>${c.km != null ? `<span class="item-side">約${c.km < 10 ? c.km.toFixed(1) : Math.round(c.km)}km</span>` : ''}</button>`).join('') : '<p class="sub">名前では見つかりませんでした。下の「Googleマップで調べて、住所をコピー」→「貼り付けて探す」を試してください</p>';
+      box.querySelectorAll('[data-pick-hit]').forEach((b) => b.addEventListener('click', () => {
+        // まず地図にピンを出して確かめる。「ここにする」で決定
+        const c = list[Number(b.dataset.pickHit)];
+        ctx.previewOnMap(c, () => b.scrollIntoView({ behavior: 'smooth', block: 'center' }), () => setPicked(key, c));
+      }));
       return;
     }
     const b = t.closest('[data-act]');

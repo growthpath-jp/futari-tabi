@@ -2,11 +2,11 @@
 import { SUPABASE_URL, SUPABASE_ANON_KEY } from './config.js';
 import { createLocalStore } from './store-local.js';
 import {
-  STATUSES, STATUS_LABEL, ALL_FILTER, extractAddress, googleUrl, applyFilter, buildRoutes,
+  STATUSES, STATUS_LABEL, ALL_FILTER, extractAddress, googleUrl, applyFilter, buildRoutes, distanceM,
   closeTripPatches, formatDateRange, describeFilter, tokyoDate,
 } from './logic.js';
 import { geocodeAddress, searchByName } from './geo.js';
-import { createMap, drawPlaces, drawPlan, drawStations, focusPlace, onMapTap, center, destroyMap } from './map.js';
+import { createMap, drawPlaces, drawPlan, drawStations, focusPlace, onMapTap, center, destroyMap, showPreview, clearPreview } from './map.js';
 import { planTrip, placePlan, tripDates } from './plan.js';
 import { createPlanView, planFields, readPlanFields } from './plan-view.js';
 import { showGuide, mountGuide } from './guide.js';
@@ -245,7 +245,7 @@ async function renderTrip(tripId, q) {
     <a class="seg ${st.tab === 'record' ? 'on' : ''}" href="#/trip/${tripId}?tab=record" ${st.tab === 'record' ? 'aria-current="page"' : ''}>記録</a>
   </nav>
   <div class="chips" id="chips" role="group" aria-label="表示する場所" ${st.tab === 'plan' ? 'hidden' : ''}></div>
-  <div class="map-wrap"><div id="map" class="map ${st.tab === 'plan' ? 'map-plan' : ''}" role="region" aria-label="旅の地図"></div><div class="map-hint" id="map-hint" hidden></div></div>
+  <div class="map-wrap"><div id="map" class="map ${st.tab === 'plan' ? 'map-plan' : ''}" role="region" aria-label="旅の地図"></div><div class="map-hint" id="map-hint" hidden></div><div class="map-confirm" id="map-confirm" hidden aria-live="polite"></div></div>
   <main class="page stack-lg">
     ${showGuide(store, trip) ? '<section class="card stack guide" id="guide" aria-live="polite"></section>' : ''}
     <div id="close-banner"></div>
@@ -296,6 +296,19 @@ async function renderTrip(tripId, q) {
     refresh: () => refresh(false), repaint: (fit, at) => { paint(fit); if (at) focusPlace(view.map, at); },
     openPlace: (id) => { st.selectedId = id; st.adjustId = null; paint(false); $('#sheet').scrollIntoView({ behavior: 'smooth', block: 'start' }); },
     searchAny,
+    // 候補を地図にピンで出して確かめる（「ここにする」で決定、「ちがう」で一覧に戻る）
+    previewOnMap: (c, back, onOk) => {
+      showPreview(view.map, c);
+      const box = $('#map-confirm');
+      box.hidden = false;
+      box.innerHTML = `<div class="stack"><b>${esc(c.name)}</b><small>${esc(c.area || c.address || '')}${c.km != null ? ` ・ 旅の場所から約${c.km < 10 ? c.km.toFixed(1) : Math.round(c.km)}km` : ''}</small>
+        <div class="row-inline"><button class="btn primary small" type="button" id="mc-ok">ここにする</button><button class="btn small" type="button" id="mc-no">ちがう（候補に戻る）</button></div></div>`;
+      $('#map').scrollIntoView({ behavior: 'smooth', block: 'start' });
+      const close = () => { box.hidden = true; box.innerHTML = ''; clearPreview(view.map); };
+      $('#mc-ok').onclick = () => { close(); onOk(); };
+      $('#mc-no').onclick = () => { close(); back(); };
+      view.cleanup.push(close);
+    },
     // 宿・駅を地図のタップで置く
     pickOnMap: (cb) => {
       st.tapToPlace = { name: '' };
@@ -451,7 +464,15 @@ async function renderTrip(tripId, q) {
       const g = await geocodeAddress(addr);
       return g ? [{ name: text, address: addr, area: addr + (g.approx ? '（番地までは特定できず）' : ''), lat: g.lat, lng: g.lng }] : [];
     }
-    return searchByName(text, tripPlaces()[0] || center(view.map));
+    const near = tripCenter();
+    const list = await searchByName(text, near);
+    // 旅の場所からの距離を付けて、近い順に並べる（どれが目当ての場所か分かるように）
+    return near ? list.map((c) => ({ ...c, km: distanceM(near, c) / 1000 })).sort((a, b) => a.km - b.km) : list;
+  }
+  function tripCenter() {
+    const ps = tripPlaces();
+    if (!ps.length) return center(view.map);
+    return { lat: ps.reduce((s, p) => s + p.lat, 0) / ps.length, lng: ps.reduce((s, p) => s + p.lng, 0) / ps.length };
   }
   const result = $('#add-result');
   async function handleText(text) {
@@ -471,7 +492,7 @@ async function renderTrip(tripId, q) {
     if (list === undefined) { result.innerHTML = ''; return; }
     if (!list.length) return notFound(text, `「${text}」は見つかりませんでした。`);
     result.innerHTML = `<div class="stack"><b>名前で探しました。近いものを選んでください</b>
-      <div class="cands">${list.map((c, i) => `<button class="item" type="button" data-i="${i}"><span class="item-main"><b>${esc(c.name)}</b><small>${esc(c.area)}</small></span></button>`).join('')}</div></div>`;
+      <div class="cands">${list.map((c, i) => `<button class="item" type="button" data-i="${i}"><span class="item-main"><b>${esc(c.name)}</b><small>${esc(c.area)}</small></span>${c.km != null ? `<span class="item-side">約${c.km < 10 ? c.km.toFixed(1) : Math.round(c.km)}km</span>` : ''}</button>`).join('')}</div></div>`;
     $$('.cands [data-i]', result).forEach((b) => b.addEventListener('click', () => {
       const c = list[Number(b.dataset.i)];
       confirmBox({ name: c.name, address: '', lat: c.lat, lng: c.lng, source: 'name', approx: false }, '');

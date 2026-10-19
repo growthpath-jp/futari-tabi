@@ -14,19 +14,8 @@
   --radius: 16px;
   --shadow: 0 1px 2px rgba(34,49,60,.06), 0 2px 8px rgba(34,49,60,.05);
 }
-@media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #15202B; --card: #1E2B38; --ink: #ECF2F7; --muted: #A9B8C4; --line: #2E3E4D;
-    --teal: #5AAEF5; --teal-ink: #0B1A27; --teal-soft: #1C3550; --teal-soft-ink: #CFE6FB;
-    --sun: #FFC75A; --sun-soft: #3A3020; --coral: #FF9478;
-    --visit: #6FA8F5; --detour: #FFA466; --missed: #9AA6B0; --want: #45C9AC;
-    --route-visit: #6FA8F5; --route-missed: #9AA6B0; --route-want: #45C9AC;
-    --warn-bg: #3A2C14; --warn-ink: #F6CD8C; --danger: #F2897C; --danger-soft: #3A2220;
-    --tile-filter: brightness(.82) saturate(.9);
-    --shadow: none;
-    color-scheme: dark;
-  }
-}
+/* 旅のアプリなので、iPhoneがダークモードでも明るい色のまま表示する */
+:root { color-scheme: light; }
 * { box-sizing: border-box; }
 [hidden] { display: none !important; }
 html, body { margin: 0; background: var(--paper); color: var(--ink); }
@@ -263,3 +252,10 @@ code { font-size: 12px; overflow-wrap: anywhere; background: var(--paper); paddi
 .pick-help { display: flex; flex-direction: column; gap: 6px; padding-top: 6px; border-top: 1px dashed var(--line); }
 .pick-steps { margin: 0; padding-left: 1.4em; display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 .pick-help .mini { text-align: left; min-height: 38px; }
+
+/* 候補の確認（地図の上に出す） */
+.map-confirm { position: absolute; left: 12px; right: 12px; bottom: 12px; z-index: 850; background: var(--card); border-radius: 14px; padding: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.18); }
+.map-confirm small { color: var(--muted); font-size: 12px; }
+.pin-preview { display: inline-block; transform: translate(-50%, -100%); background: var(--coral); color: #fff; font: 700 12px var(--body); padding: 4px 8px; border-radius: 10px; white-space: nowrap; box-shadow: 0 2px 6px rgba(0,0,0,.25); position: relative; }
+.pin-preview::after { content: ''; position: absolute; left: 50%; bottom: -6px; transform: translateX(-50%); border: 6px solid transparent; border-bottom: 0; border-top-color: var(--coral); }
+.mini.danger { color: var(--danger); border-color: var(--danger-soft); }

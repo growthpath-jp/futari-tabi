@@ -1,5 +1,5 @@
 // オフラインでも画面だけは開けるようにする（データは通信が必要）
-const CACHE = 'futari-tabi-v3';
+const CACHE = 'futari-tabi-v4';
 const SHELL = ['./', 'index.html', 'css/app.css', 'js/app.js', 'js/logic.js', 'js/config.js', 'js/store-local.js', 'js/store-supabase.js', 'js/geo.js', 'js/map.js', 'js/plan.js', 'js/plan-view.js', 'js/guide.js', 'js/demo-kobe.js', 'manifest.webmanifest', 'icons/icon-192.png'];
 
 self.addEventListener('install', (e) => {

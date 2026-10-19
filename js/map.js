@@ -140,6 +140,16 @@ export function drawPlan(m, res, opts = {}) {
   }
 }
 
+// 候補の確認用ピン（選ぶ前に、どこなのか地図で確かめる）
+export function showPreview(m, c) {
+  if (!m) return;
+  if (!m.preview) m.preview = L.layerGroup().addTo(m.map);
+  m.preview.clearLayers();
+  L.marker([c.lat, c.lng], { icon: L.divIcon({ className: 'pin-wrap', html: `<span class="pin-preview">${String(c.name || '').replace(/[&<>"']/g, '').slice(0, 14)}</span>`, iconSize: [0, 0] }), title: c.name + '（確認中）', zIndexOffset: 2000 }).addTo(m.preview);
+  m.map.setView([c.lat, c.lng], 15);
+}
+export function clearPreview(m) { if (m && m.preview) m.preview.clearLayers(); }
+
 // 旅行中：駅を地図に出す（OpenStreetMap の駅データ）
 export async function drawStations(m, on) {
   if (!m) return;
